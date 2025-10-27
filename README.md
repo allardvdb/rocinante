@@ -122,6 +122,10 @@ This should queue your image for the next reboot, which you can do immediately a
 
 # Repository Contents
 
+## Documentation
+
+- [1Password + Firefox Flatpak Integration](docs/1password-flatpak-fix.md) - Solution for connecting 1Password desktop with Firefox Flatpak on Bluefin/Universal Blue systems
+
 ## Containerfile
 
 The [Containerfile](./Containerfile) defines the operations used to customize the selected image.This file is the entrypoint for your image build, and works exactly like a regular podman Containerfile. For reference, please see the [Podman Documentation](https://docs.podman.io/en/latest/Introduction.html).

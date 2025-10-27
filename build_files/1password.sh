@@ -129,3 +129,71 @@ rm -f /usr/lib/sysusers.d/30-rpmostree-pkg-group-onepassword-cli.conf
 cat >/usr/lib/tmpfiles.d/onepassword.conf <<EOF
 L  /opt/1Password  -  -  -  -  /usr/lib/1Password
 EOF
+
+#####
+# Configure 1Password for Flatpak browser integration
+echo "Configuring 1Password for Flatpak browser integration"
+
+# Create custom_allowed_browsers file to allow Flatpak browsers
+mkdir -p /etc/1password
+echo "flatpak-session-helper" > /etc/1password/custom_allowed_browsers
+
+# Create first-boot script to set up Flatpak browser integration
+cat > /usr/local/bin/setup-1password-flatpak.sh << 'SCRIPT_EOF'
+#!/bin/bash
+# Auto-setup 1Password Flatpak integration on first login
+
+if [ ! -f ~/.config/1password-flatpak-configured ]; then
+    echo "Setting up 1Password Flatpak browser integration..."
+
+    # Check if Firefox Flatpak is installed
+    if flatpak list 2>/dev/null | grep -q org.mozilla.firefox; then
+        # Download and run integration script
+        TEMP_DIR=$(mktemp -d)
+        cd "$TEMP_DIR"
+
+        if git clone https://github.com/FlyinPancake/1password-flatpak-browser-integration 2>/dev/null; then
+            cd 1password-flatpak-browser-integration
+            echo "org.mozilla.firefox" | ./1password-flatpak-browser-integration.sh
+
+            # Mark as configured
+            touch ~/.config/1password-flatpak-configured
+
+            # Notify user if desktop is running
+            if command -v notify-send >/dev/null 2>&1; then
+                notify-send "1Password Setup" "Firefox Flatpak integration configured. Please restart Firefox if running."
+            fi
+        else
+            echo "Failed to download 1Password Flatpak integration script"
+        fi
+
+        # Clean up
+        cd /
+        rm -rf "$TEMP_DIR"
+    fi
+
+    # Check for other Flatpak browsers
+    for browser in com.google.Chrome com.brave.Browser org.chromium.Chromium; do
+        if flatpak list 2>/dev/null | grep -q "$browser"; then
+            echo "Note: $browser detected but not auto-configured. Run setup manually if needed."
+        fi
+    done
+fi
+SCRIPT_EOF
+
+chmod +x /usr/local/bin/setup-1password-flatpak.sh
+
+# Create XDG autostart entry to run on first login
+mkdir -p /etc/skel/.config/autostart
+cat > /etc/skel/.config/autostart/1password-flatpak-setup.desktop << 'DESKTOP_EOF'
+[Desktop Entry]
+Type=Application
+Name=1Password Flatpak Setup
+Exec=/usr/local/bin/setup-1password-flatpak.sh
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Comment=Set up 1Password for Flatpak browsers on first login
+DESKTOP_EOF
+
+echo "1Password Flatpak browser integration setup complete"
