@@ -139,6 +139,7 @@ mkdir -p /etc/1password
 echo "flatpak-session-helper" > /etc/1password/custom_allowed_browsers
 
 # Create first-boot script to set up Flatpak browser integration
+mkdir -p /usr/local/bin
 cat > /usr/local/bin/setup-1password-flatpak.sh << 'SCRIPT_EOF'
 #!/bin/bash
 # Auto-setup 1Password Flatpak integration on first login
