@@ -139,8 +139,9 @@ mkdir -p /etc/1password
 echo "flatpak-session-helper" > /etc/1password/custom_allowed_browsers
 
 # Create first-boot script to set up Flatpak browser integration
-mkdir -p /usr/local/bin
-cat > /usr/local/bin/setup-1password-flatpak.sh << 'SCRIPT_EOF'
+# Use /usr/libexec for immutable systems (ostree/rpm-ostree)
+mkdir -p /usr/libexec/1password
+cat > /usr/libexec/1password/setup-1password-flatpak.sh << 'SCRIPT_EOF'
 #!/bin/bash
 # Auto-setup 1Password Flatpak integration on first login
 
@@ -182,7 +183,7 @@ if [ ! -f ~/.config/1password-flatpak-configured ]; then
 fi
 SCRIPT_EOF
 
-chmod +x /usr/local/bin/setup-1password-flatpak.sh
+chmod +x /usr/libexec/1password/setup-1password-flatpak.sh
 
 # Create XDG autostart entry to run on first login
 mkdir -p /etc/skel/.config/autostart
@@ -190,7 +191,7 @@ cat > /etc/skel/.config/autostart/1password-flatpak-setup.desktop << 'DESKTOP_EO
 [Desktop Entry]
 Type=Application
 Name=1Password Flatpak Setup
-Exec=/usr/local/bin/setup-1password-flatpak.sh
+Exec=/usr/libexec/1password/setup-1password-flatpak.sh
 Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true
