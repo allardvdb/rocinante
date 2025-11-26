@@ -6,8 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a custom Universal Blue / Bluefin Linux image that creates a personalized developer workstation based on Fedora Silverblue/Kinoite. The image is built using GitHub Actions and published to GitHub Container Registry (ghcr.io).
 
-**Current Name**: nedtop
-**Future Name**: roccinante-dx (see issue #6)
+**Name**: rocinante (named after the Martian gunship from The Expanse)
 
 ## Project Structure
 
@@ -70,17 +69,17 @@ Built on top of: `ghcr.io/ublue-os/bluefin-dx:stable`
 ### GitHub Actions Workflow
 - Triggers on: push to main, PRs, daily schedule (10:05 UTC)
 - Uses Buildah for container building
-- Publishes to: `ghcr.io/allardvdb/nedtop`
+- Publishes to: `ghcr.io/allardvdb/rocinante`
 - Signs images with Cosign
 - Tags: latest, latest.YYYYMMDD, YYYYMMDD
 
 ### Building Locally
 ```bash
 # Build the container image
-podman build -t nedtop:local .
+podman build -t rocinante:local .
 
 # Run for testing (not recommended for daily use)
-podman run -it --rm nedtop:local bash
+podman run -it --rm rocinante:local bash
 ```
 
 ## Development Patterns
@@ -139,17 +138,13 @@ ssh-add -l  # Should show your keys
 
 ### Container Registry
 Images are published to GitHub Container Registry:
-- Public access: `ghcr.io/allardvdb/nedtop:latest`
+- Public access: `ghcr.io/allardvdb/rocinante:latest`
 - Historical tags available (daily builds)
 - Signed with Cosign for verification
 
 ## Future Improvements
 
-1. **Rename to roccinante-dx** (#6)
-   - Update all references from nedtop
-   - Maintain compatibility during transition
-
-2. **Refactor to ujust pattern** (#5)
+1. **Refactor to ujust pattern** (#5)
    - Move user setup out of image
    - Implement just recipes for configuration
    - Better separation of system vs user concerns
