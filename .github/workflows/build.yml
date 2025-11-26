@@ -32,9 +32,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - image_name: nedtop
+          - image_name: rocinante
             base_image: ghcr.io/ublue-os/bluefin-dx:latest
-          - image_name: nedtop-nvidia
+          - image_name: rocinante-nvidia
             base_image: ghcr.io/ublue-os/bluefin-dx-nvidia:latest
 
     permissions:
