@@ -40,9 +40,9 @@ pkill 1password
 - Slightly weakens Flatpak sandbox (allows execution outside sandbox)
 - Same issue affects Bitwarden, KeePassXC, and other password managers
 
-## For Your nedtop Build
+## For Your rocinante Build
 
-Add to `/var/home/allard/src/nedtop/build_files/build.sh`:
+Add to `/var/home/allard/src/rocinante/build_files/build.sh`:
 
 ```bash
 # Configure 1Password + Firefox Flatpak integration

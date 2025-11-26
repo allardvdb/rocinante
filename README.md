@@ -1,4 +1,4 @@
-# nedtop
+# rocinante
 
 Custom [Universal Blue](https://universal-blue.org/) image based on Bluefin-DX with personal customizations.
 
@@ -48,7 +48,7 @@ just build-iso
 
 ```bash
 # Switch existing system to this image
-sudo bootc switch ghcr.io/<your-github-username>/nedtop
+sudo bootc switch ghcr.io/<your-github-username>/rocinante
 
 # Or use the ISO for fresh installation
 # Build ISO first with: just build-iso
@@ -57,7 +57,7 @@ sudo bootc switch ghcr.io/<your-github-username>/nedtop
 ## Repository Structure
 
 ```
-nedtop/
+rocinante/
 ├── Containerfile           # Image definition
 ├── build_files/
 │   ├── build.sh           # Main build script
