@@ -40,45 +40,25 @@ pkill 1password
 - Slightly weakens Flatpak sandbox (allows execution outside sandbox)
 - Same issue affects Bitwarden, KeePassXC, and other password managers
 
-## For Your rocinante Build
+## rocinante Build Integration
 
-Add to `/var/home/allard/src/rocinante/build_files/build.sh`:
+This is already implemented in `build_files/1password.sh`. The script:
+
+1. Installs the setup script to `/usr/libexec/1password/setup-1password-flatpak.sh`
+2. Creates an autostart entry in `/etc/skel/.config/autostart/` for new users
+3. Configures `/etc/1password/custom_allowed_browsers` with `flatpak-session-helper`
+
+### For Existing Users
+
+The autostart entry only applies to new users. Existing users need to either:
 
 ```bash
-# Configure 1Password + Firefox Flatpak integration
-cat > /etc/skel/.config/autostart/1password-flatpak-setup.desktop << 'EOF'
-[Desktop Entry]
-Type=Application
-Name=1Password Flatpak Setup
-Exec=/usr/local/bin/setup-1password-flatpak.sh
-Hidden=false
-NoDisplay=false
-X-GNOME-Autostart-enabled=true
-Comment=Set up 1Password for Flatpak browsers on first login
-EOF
+# Option 1: Run the setup script manually
+/usr/libexec/1password/setup-1password-flatpak.sh
 
-cat > /usr/local/bin/setup-1password-flatpak.sh << 'EOF'
-#!/bin/bash
-# Auto-setup 1Password Flatpak integration on first login
-if [ ! -f ~/.config/1password-flatpak-configured ]; then
-    # Check if Firefox Flatpak is installed
-    if flatpak list | grep -q org.mozilla.firefox; then
-        # Download and run integration script
-        cd /tmp
-        git clone https://github.com/FlyinPancake/1password-flatpak-browser-integration
-        cd 1password-flatpak-browser-integration
-        echo "org.mozilla.firefox" | ./1password-flatpak-browser-integration.sh
-        touch ~/.config/1password-flatpak-configured
-        notify-send "1Password Setup" "Firefox Flatpak integration configured. Please restart Firefox."
-    fi
-fi
-EOF
-
-chmod +x /usr/local/bin/setup-1password-flatpak.sh
-
-# Ensure custom_allowed_browsers exists
-mkdir -p /etc/1password
-echo "flatpak-session-helper" > /etc/1password/custom_allowed_browsers
+# Option 2: Copy the autostart entry for future logins
+mkdir -p ~/.config/autostart
+cp /etc/skel/.config/autostart/1password-flatpak-setup.desktop ~/.config/autostart/
 ```
 
 ## Verification
