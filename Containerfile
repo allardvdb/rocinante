@@ -1,9 +1,11 @@
+# Base Image - configurable via build arg for multi-variant builds
+# ARG must be before any FROM to be usable in FROM instructions
+ARG BASE_IMAGE=ghcr.io/ublue-os/bluefin-dx:latest
+
 # Allow build scripts to be referenced without being copied into the final image
 FROM scratch AS ctx
 COPY build_files /
 
-# Base Image - configurable via build arg for multi-variant builds
-ARG BASE_IMAGE=ghcr.io/ublue-os/bluefin-dx:latest
 FROM ${BASE_IMAGE}
 
 ## Build variants:
