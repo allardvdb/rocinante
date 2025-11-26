@@ -32,9 +32,9 @@ jobs:
       matrix:
         include:
           - image_name: rocinante
-            base_image: ghcr.io/ublue-os/bluefin-dx:latest
+            base_image: ghcr.io/ublue-os/bluefin-dx:stable
           - image_name: rocinante-nvidia
-            base_image: ghcr.io/ublue-os/bluefin-dx-nvidia:latest
+            base_image: ghcr.io/ublue-os/bluefin-dx-nvidia-open:stable
 
     permissions:
       contents: read

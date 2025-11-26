@@ -1,6 +1,6 @@
 # Base Image - configurable via build arg for multi-variant builds
 # ARG must be before any FROM to be usable in FROM instructions
-ARG BASE_IMAGE=ghcr.io/ublue-os/bluefin-dx:latest
+ARG BASE_IMAGE=ghcr.io/ublue-os/bluefin-dx:stable
 
 # Allow build scripts to be referenced without being copied into the final image
 FROM scratch AS ctx
@@ -9,8 +9,8 @@ COPY build_files /
 FROM ${BASE_IMAGE}
 
 ## Build variants:
-# nedtop:        ghcr.io/ublue-os/bluefin-dx:latest (default)
-# nedtop-nvidia: ghcr.io/ublue-os/bluefin-dx-nvidia:latest
+# rocinante:        ghcr.io/ublue-os/bluefin-dx:stable (default)
+# rocinante-nvidia: ghcr.io/ublue-os/bluefin-dx-nvidia-open:stable
 #
 # Other possible base images:
 # Universal Blue Images: https://github.com/orgs/ublue-os/packages
