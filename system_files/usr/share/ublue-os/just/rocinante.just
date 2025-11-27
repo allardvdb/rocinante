@@ -87,3 +87,35 @@ setup-yubikey-ssh:
     echo "  4. Verify with: ssh-add -L"
     echo ""
     echo "Your YubiKey's SSH key will be available after importing the GPG public key."
+
+# Toggle system suspend for remote access
+[group('Rocinante')]
+toggle-suspend:
+    #!/usr/bin/env bash
+    source /usr/lib/ujust/ujust.sh
+    set -euo pipefail
+
+    CONFIG_FILE="/etc/systemd/logind.conf.d/no-suspend.conf"
+
+    if [[ -f "$CONFIG_FILE" ]]; then
+        echo "${b}Suspend is currently DISABLED${n}"
+        echo "Removing $CONFIG_FILE to re-enable suspend..."
+        sudo rm "$CONFIG_FILE"
+        sudo systemctl restart systemd-logind
+        echo ""
+        echo "${b}Suspend is now ENABLED${n}"
+        echo "System will suspend normally when idle or lid is closed."
+    else
+        echo "${b}Suspend is currently ENABLED${n}"
+        echo "Creating $CONFIG_FILE to disable suspend..."
+        sudo mkdir -p /etc/systemd/logind.conf.d
+        echo "[Login]" | sudo tee "$CONFIG_FILE" > /dev/null
+        echo "# Prevent automatic suspend for remote access" | sudo tee -a "$CONFIG_FILE" > /dev/null
+        echo "IdleAction=ignore" | sudo tee -a "$CONFIG_FILE" > /dev/null
+        echo "HandleLidSwitch=ignore" | sudo tee -a "$CONFIG_FILE" > /dev/null
+        echo "HandleLidSwitchExternalPower=ignore" | sudo tee -a "$CONFIG_FILE" > /dev/null
+        sudo systemctl restart systemd-logind
+        echo ""
+        echo "${b}Suspend is now DISABLED${n}"
+        echo "System will stay awake for remote access."
+    fi
