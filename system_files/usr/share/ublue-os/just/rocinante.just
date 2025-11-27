@@ -15,13 +15,11 @@ setup-yubikey-ssh:
     chmod 700 ~/.gnupg
 
     if [[ ! -f ~/.gnupg/scdaemon.conf ]]; then
-        cat > ~/.gnupg/scdaemon.conf << 'EOF'
-# Disable scdaemon's built-in CCID driver to prevent race condition with pcscd
-disable-ccid
-
-# Allow shared access to the card (needed when opensc/other apps also use it)
-pcsc-shared
-EOF
+        echo "# Disable scdaemon's built-in CCID driver to prevent race condition with pcscd" > ~/.gnupg/scdaemon.conf
+        echo "disable-ccid" >> ~/.gnupg/scdaemon.conf
+        echo "" >> ~/.gnupg/scdaemon.conf
+        echo "# Allow shared access to the card (needed when opensc/other apps also use it)" >> ~/.gnupg/scdaemon.conf
+        echo "pcsc-shared" >> ~/.gnupg/scdaemon.conf
         echo "Created ~/.gnupg/scdaemon.conf"
     else
         echo "~/.gnupg/scdaemon.conf already exists, skipping"
@@ -29,13 +27,11 @@ EOF
 
     # Update gpg-agent.conf for SSH support
     if ! grep -q "enable-ssh-support" ~/.gnupg/gpg-agent.conf 2>/dev/null; then
-        cat >> ~/.gnupg/gpg-agent.conf << 'EOF'
-
-# SSH support
-enable-ssh-support
-default-cache-ttl-ssh 600
-max-cache-ttl-ssh 7200
-EOF
+        echo "" >> ~/.gnupg/gpg-agent.conf
+        echo "# SSH support" >> ~/.gnupg/gpg-agent.conf
+        echo "enable-ssh-support" >> ~/.gnupg/gpg-agent.conf
+        echo "default-cache-ttl-ssh 600" >> ~/.gnupg/gpg-agent.conf
+        echo "max-cache-ttl-ssh 7200" >> ~/.gnupg/gpg-agent.conf
         echo "Added SSH support to ~/.gnupg/gpg-agent.conf"
     else
         echo "SSH support already configured in gpg-agent.conf"
@@ -45,24 +41,22 @@ EOF
     mkdir -p ~/.bashrc.d
 
     if [[ ! -f ~/.bashrc.d/gpg-yubikey.sh ]]; then
-        cat > ~/.bashrc.d/gpg-yubikey.sh << 'EOF'
-#!/bin/bash
-# GPG and Yubikey SSH configuration
-
-# Set GPG TTY
-export GPG_TTY=$(tty)
-
-# Use gpg-agent for SSH
-export SSH_AUTH_SOCK=$(gpgconf --list-dirs agent-ssh-socket)
-
-# Ensure gpg-agent is running with SSH support
-if ! pgrep -x gpg-agent > /dev/null; then
-    gpg-agent --daemon --enable-ssh-support > /dev/null 2>&1
-fi
-
-# Update the gpg-agent TTY (for pinentry)
-gpg-connect-agent updatestartuptty /bye >/dev/null 2>&1
-EOF
+        echo '#!/bin/bash' > ~/.bashrc.d/gpg-yubikey.sh
+        echo '# GPG and Yubikey SSH configuration' >> ~/.bashrc.d/gpg-yubikey.sh
+        echo '' >> ~/.bashrc.d/gpg-yubikey.sh
+        echo '# Set GPG TTY' >> ~/.bashrc.d/gpg-yubikey.sh
+        echo 'export GPG_TTY=$(tty)' >> ~/.bashrc.d/gpg-yubikey.sh
+        echo '' >> ~/.bashrc.d/gpg-yubikey.sh
+        echo '# Use gpg-agent for SSH' >> ~/.bashrc.d/gpg-yubikey.sh
+        echo 'export SSH_AUTH_SOCK=$(gpgconf --list-dirs agent-ssh-socket)' >> ~/.bashrc.d/gpg-yubikey.sh
+        echo '' >> ~/.bashrc.d/gpg-yubikey.sh
+        echo '# Ensure gpg-agent is running with SSH support' >> ~/.bashrc.d/gpg-yubikey.sh
+        echo 'if ! pgrep -x gpg-agent > /dev/null; then' >> ~/.bashrc.d/gpg-yubikey.sh
+        echo '    gpg-agent --daemon --enable-ssh-support > /dev/null 2>&1' >> ~/.bashrc.d/gpg-yubikey.sh
+        echo 'fi' >> ~/.bashrc.d/gpg-yubikey.sh
+        echo '' >> ~/.bashrc.d/gpg-yubikey.sh
+        echo '# Update the gpg-agent TTY (for pinentry)' >> ~/.bashrc.d/gpg-yubikey.sh
+        echo 'gpg-connect-agent updatestartuptty /bye >/dev/null 2>&1' >> ~/.bashrc.d/gpg-yubikey.sh
         echo "Created ~/.bashrc.d/gpg-yubikey.sh"
     else
         echo "~/.bashrc.d/gpg-yubikey.sh already exists, skipping"
