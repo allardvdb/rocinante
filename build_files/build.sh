@@ -12,6 +12,12 @@ set -ouex pipefail
 # this installs a package from fedora repos
 dnf5 install -y --skip-unavailable tmux gnupg2-scdaemon
 
+# Install nvidia-container-toolkit for Podman GPU access (nvidia variants only)
+# The repo is provided by ublue-os-nvidia-addons but package needs explicit install
+if dnf5 repolist --disabled | grep -q nvidia-container-toolkit; then
+    dnf5 install -y --enablerepo=nvidia-container-toolkit nvidia-container-toolkit
+fi
+
 # Use a COPR Example:
 #
 # dnf5 -y copr enable ublue-os/staging
