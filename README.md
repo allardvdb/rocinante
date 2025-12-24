@@ -2,6 +2,8 @@
 
 Custom [Bluefin-DX](https://projectbluefin.io/) image with 1Password, OpenVPN, and YubiKey support.
 
+Built using the [ublue-os/image-template](https://github.com/ublue-os/image-template) pattern.
+
 ## Installation
 
 ```bash
