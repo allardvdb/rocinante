@@ -1,92 +1,140 @@
 # vim: set ft=make :
 # Rocinante custom ujust recipes
 
-# Configure YubiKey for GPG and SSH authentication
+# Configure YubiKey for SSH and git signing using FIDO2 (works with Bio and 5)
 [group('Rocinante')]
 setup-yubikey-ssh:
     #!/usr/bin/env bash
     source /usr/lib/ujust/ujust.sh
     set -euo pipefail
 
-    echo "${b}Setting up YubiKey for GPG/SSH authentication...${n}"
+    echo "${b}Setting up YubiKey for SSH/git signing (FIDO2)...${n}"
+    echo ""
 
-    # Create scdaemon.conf for reliable YubiKey detection
-    mkdir -p ~/.gnupg
-    chmod 700 ~/.gnupg
+    # Step 1: Enable systemd ssh-agent
+    echo "Enabling systemd ssh-agent..."
+    systemctl --user enable --now ssh-agent.socket
 
-    if [[ ! -f ~/.gnupg/scdaemon.conf ]]; then
-        echo "# Disable scdaemon's built-in CCID driver to prevent race condition with pcscd" > ~/.gnupg/scdaemon.conf
-        echo "disable-ccid" >> ~/.gnupg/scdaemon.conf
-        echo "" >> ~/.gnupg/scdaemon.conf
-        echo "# Allow shared access to the card (needed when opensc/other apps also use it)" >> ~/.gnupg/scdaemon.conf
-        echo "pcsc-shared" >> ~/.gnupg/scdaemon.conf
-        echo "Created ~/.gnupg/scdaemon.conf"
+    # Step 2: Configure SSH_AUTH_SOCK via environment.d
+    mkdir -p ~/.config/environment.d
+    if [[ ! -f ~/.config/environment.d/10-ssh-agent.conf ]]; then
+        cat > ~/.config/environment.d/10-ssh-agent.conf << 'EOF'
+# Use systemd ssh-agent for FIDO2/sk-ssh keys (YubiKey Bio/5)
+SSH_AUTH_SOCK=${XDG_RUNTIME_DIR}/ssh-agent.socket
+EOF
+        echo "Created ~/.config/environment.d/10-ssh-agent.conf"
     else
-        echo "~/.gnupg/scdaemon.conf already exists, skipping"
+        echo "~/.config/environment.d/10-ssh-agent.conf already exists"
     fi
 
-    # Update gpg-agent.conf for SSH support
-    if ! grep -q "enable-ssh-support" ~/.gnupg/gpg-agent.conf 2>/dev/null; then
-        echo "" >> ~/.gnupg/gpg-agent.conf
-        echo "# SSH support" >> ~/.gnupg/gpg-agent.conf
-        echo "enable-ssh-support" >> ~/.gnupg/gpg-agent.conf
-        echo "default-cache-ttl-ssh 600" >> ~/.gnupg/gpg-agent.conf
-        echo "max-cache-ttl-ssh 7200" >> ~/.gnupg/gpg-agent.conf
-        echo "Added SSH support to ~/.gnupg/gpg-agent.conf"
-    else
-        echo "SSH support already configured in gpg-agent.conf"
+    # Step 3: Disable GPG agent SSH support if enabled
+    if [[ -f ~/.gnupg/gpg-agent.conf ]] && grep -q "^enable-ssh-support" ~/.gnupg/gpg-agent.conf; then
+        sed -i 's/^enable-ssh-support/# enable-ssh-support  # Disabled - using systemd ssh-agent for FIDO2/' ~/.gnupg/gpg-agent.conf
+        echo "Disabled GPG agent SSH support in ~/.gnupg/gpg-agent.conf"
     fi
 
-    # Create bashrc.d directory and GPG/YubiKey script
-    mkdir -p ~/.bashrc.d
-
-    if [[ ! -f ~/.bashrc.d/gpg-yubikey.sh ]]; then
-        echo '#!/bin/bash' > ~/.bashrc.d/gpg-yubikey.sh
-        echo '# GPG and Yubikey SSH configuration' >> ~/.bashrc.d/gpg-yubikey.sh
-        echo '' >> ~/.bashrc.d/gpg-yubikey.sh
-        echo '# Set GPG TTY' >> ~/.bashrc.d/gpg-yubikey.sh
-        echo 'export GPG_TTY=$(tty)' >> ~/.bashrc.d/gpg-yubikey.sh
-        echo '' >> ~/.bashrc.d/gpg-yubikey.sh
-        echo '# Use gpg-agent for SSH' >> ~/.bashrc.d/gpg-yubikey.sh
-        echo 'export SSH_AUTH_SOCK=$(gpgconf --list-dirs agent-ssh-socket)' >> ~/.bashrc.d/gpg-yubikey.sh
-        echo '' >> ~/.bashrc.d/gpg-yubikey.sh
-        echo '# Ensure gpg-agent is running with SSH support' >> ~/.bashrc.d/gpg-yubikey.sh
-        echo 'if ! pgrep -x gpg-agent > /dev/null; then' >> ~/.bashrc.d/gpg-yubikey.sh
-        echo '    gpg-agent --daemon --enable-ssh-support > /dev/null 2>&1' >> ~/.bashrc.d/gpg-yubikey.sh
-        echo 'fi' >> ~/.bashrc.d/gpg-yubikey.sh
-        echo '' >> ~/.bashrc.d/gpg-yubikey.sh
-        echo '# Update the gpg-agent TTY (for pinentry)' >> ~/.bashrc.d/gpg-yubikey.sh
-        echo 'gpg-connect-agent updatestartuptty /bye >/dev/null 2>&1' >> ~/.bashrc.d/gpg-yubikey.sh
-        echo "Created ~/.bashrc.d/gpg-yubikey.sh"
-    else
-        echo "~/.bashrc.d/gpg-yubikey.sh already exists, skipping"
+    # Step 4: Remove old GPG SSH bashrc script if present
+    if [[ -f ~/.bashrc.d/gpg-yubikey.sh ]]; then
+        rm ~/.bashrc.d/gpg-yubikey.sh
+        echo "Removed old ~/.bashrc.d/gpg-yubikey.sh"
     fi
 
-    # Disable 1Password SSH agent if configured
-    if [[ -f ~/.bash_profile ]] && grep -q 'SSH_AUTH_SOCK.*1password' ~/.bash_profile; then
-        sed -i 's|^export SSH_AUTH_SOCK=.*1password.*|# Disabled: export SSH_AUTH_SOCK="$HOME/.1password/agent.sock"|' ~/.bash_profile
-        echo "Disabled 1Password SSH agent in ~/.bash_profile"
+    # Step 5: Check for existing FIDO2 SSH key
+    echo ""
+    SK_KEY=""
+    if [[ -f ~/.ssh/id_ed25519_sk.pub ]]; then
+        SK_KEY=~/.ssh/id_ed25519_sk.pub
+        echo "Found existing FIDO2 key: $SK_KEY"
+    elif [[ -f ~/.ssh/id_ecdsa_sk.pub ]]; then
+        SK_KEY=~/.ssh/id_ecdsa_sk.pub
+        echo "Found existing FIDO2 key: $SK_KEY"
     fi
 
-    if [[ -f ~/.ssh/config ]] && grep -q 'IdentityAgent.*1password' ~/.ssh/config; then
-        sed -i 's|^\t*IdentityAgent.*1password|#\tIdentityAgent ~/.1password/agent.sock|' ~/.ssh/config
-        echo "Disabled 1Password SSH agent in ~/.ssh/config"
+    if [[ -z "$SK_KEY" ]]; then
+        echo "${b}No FIDO2 SSH key found.${n}"
+        echo ""
+        echo "To generate one, insert your YubiKey and run:"
+        echo "  ssh-keygen -t ed25519-sk -C \"your-email@example.com\""
+        echo ""
+        echo "Then re-run this setup."
+        exit 0
     fi
 
-    # Restart GPG agent
-    gpgconf --kill gpg-agent
-    gpgconf --kill scdaemon
+    # Step 6: Configure git for SSH signing
+    echo ""
+    echo "Configuring git for SSH signing..."
+    git config --global gpg.format ssh
+    git config --global user.signingkey "key::$(cat "$SK_KEY")"
+    git config --global commit.gpgsign true
+
+    # Remove 1Password signing program if set
+    if git config --global gpg.ssh.program &>/dev/null; then
+        git config --global --unset gpg.ssh.program
+        echo "Removed 1Password SSH signing program from git config"
+    fi
+
+    # Step 7: Add key to current ssh-agent session
+    export SSH_AUTH_SOCK="${XDG_RUNTIME_DIR}/ssh-agent.socket"
+    SK_PRIVATE="${SK_KEY%.pub}"
+    if [[ -f "$SK_PRIVATE" ]]; then
+        echo ""
+        echo "Adding key to ssh-agent (touch YubiKey when prompted)..."
+        ssh-add "$SK_PRIVATE" 2>/dev/null || echo "Key may already be added or YubiKey not present"
+    fi
 
     echo ""
     echo "${b}YubiKey SSH setup complete!${n}"
     echo ""
-    echo "Next steps:"
-    echo "  1. Open a new terminal or run: source ~/.bashrc.d/gpg-yubikey.sh"
-    echo "  2. Insert your YubiKey"
-    echo "  3. Import your GPG public key: gpg --import <your-public-key.asc>"
-    echo "  4. Verify with: ssh-add -L"
+    echo "Your FIDO2 key: $(cat "$SK_KEY")"
     echo ""
-    echo "Your YubiKey's SSH key will be available after importing the GPG public key."
+    echo "${b}Next steps:${n}"
+    echo "  1. Log out and back in (or export SSH_AUTH_SOCK=\"\${XDG_RUNTIME_DIR}/ssh-agent.socket\")"
+    echo "  2. Add your public key to GitHub as a ${b}Signing Key${n}:"
+    echo "     GitHub → Settings → SSH and GPG keys → New SSH key → Key type: Signing Key"
+    echo "  3. Test: git commit -S -m \"test\" (touch YubiKey when it blinks)"
+    echo ""
+    echo "For GPG operations with YubiKey 5, use: ujust enable-yubikey-gpg"
+
+# Prepare current shell for GPG operations with YubiKey 5
+[group('Rocinante')]
+enable-yubikey-gpg:
+    #!/usr/bin/env bash
+    source /usr/lib/ujust/ujust.sh
+
+    echo "${b}Enabling GPG/YubiKey for this shell session...${n}"
+    echo ""
+
+    # Configure scdaemon if needed
+    mkdir -p ~/.gnupg
+    chmod 700 ~/.gnupg
+
+    if [[ ! -f ~/.gnupg/scdaemon.conf ]]; then
+        cat > ~/.gnupg/scdaemon.conf << 'EOF'
+# Disable scdaemon's built-in CCID driver to prevent conflict with pcscd
+disable-ccid
+# Allow shared access to the card
+pcsc-shared
+EOF
+        echo "Created ~/.gnupg/scdaemon.conf"
+    fi
+
+    # Kill existing scdaemon to pick up config
+    gpgconf --kill scdaemon 2>/dev/null || true
+
+    echo ""
+    echo "Run these commands in your current shell:"
+    echo ""
+    echo "  export GPG_TTY=\$(tty)"
+    echo "  export SSH_AUTH_SOCK=\$(gpgconf --list-dirs agent-ssh-socket)"
+    echo "  gpg-connect-agent updatestartuptty /bye"
+    echo ""
+    echo "Or copy-paste this one-liner:"
+    echo ""
+    echo "  ${b}export GPG_TTY=\$(tty) SSH_AUTH_SOCK=\$(gpgconf --list-dirs agent-ssh-socket); gpg-connect-agent updatestartuptty /bye${n}"
+    echo ""
+    echo "Then verify your YubiKey:"
+    echo "  gpg --card-status"
+    echo "  ssh-add -L"
 
 # Toggle system suspend for remote access
 [group('Rocinante')]

@@ -107,7 +107,8 @@ podman run -it --rm rocinante:local bash
 User-level configuration via ujust (located in `system_files/usr/share/ublue-os/just/rocinante.just`):
 - `ujust first-run` - Run all first-time setup tasks
 - `ujust setup-1password-browser` - Configure 1Password for Flatpak browsers
-- `ujust setup-yubikey-ssh` - Configure YubiKey for SSH authentication
+- `ujust setup-yubikey-ssh` - Configure YubiKey for SSH/git signing (FIDO2)
+- `ujust enable-yubikey-gpg` - Prepare shell for GPG operations with YubiKey 5
 - `ujust toggle-openvpn-indicator` - Enable/disable OpenVPN tray indicator
 - `ujust toggle-suspend` - Toggle system suspend for remote access
 
