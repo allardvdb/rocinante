@@ -194,7 +194,70 @@ first-run:
     echo ""
     echo "${b}[2/2] Additional Setup${n}"
     echo "Other setup tasks you may want to run:"
-    echo "  - ujust setup-yubikey-ssh    # If using YubiKey for SSH"
-    echo "  - ujust toggle-suspend       # If using for remote access"
+    echo "  - ujust setup-yubikey-ssh       # If using YubiKey for SSH"
+    echo "  - ujust toggle-suspend          # If using for remote access"
+    echo "  - ujust toggle-openvpn-indicator # If using OpenVPN"
     echo ""
     echo "${b}First-run setup complete!${n}"
+
+# Toggle OpenVPN indicator autostart
+[group('Rocinante')]
+toggle-openvpn-indicator:
+    #!/usr/bin/env bash
+    source /usr/lib/ujust/ujust.sh
+    set -euo pipefail
+
+    AUTOSTART_SRC="/etc/xdg/autostart/openvpn3-indicator.desktop"
+    AUTOSTART_USER="$HOME/.config/autostart/openvpn3-indicator.desktop"
+
+    # Check if system autostart exists
+    if [[ ! -f "$AUTOSTART_SRC" ]]; then
+        echo "OpenVPN indicator is not installed."
+        exit 1
+    fi
+
+    # Check current state - user override takes precedence
+    if [[ -f "$AUTOSTART_USER" ]]; then
+        if grep -q "Hidden=true" "$AUTOSTART_USER" 2>/dev/null; then
+            CURRENT_STATE="disabled"
+        else
+            CURRENT_STATE="enabled"
+        fi
+    else
+        # No user override - check if system default is masked
+        if grep -q "Hidden=true" "$AUTOSTART_SRC" 2>/dev/null; then
+            CURRENT_STATE="disabled"
+        else
+            CURRENT_STATE="enabled"
+        fi
+    fi
+
+    if [[ "$CURRENT_STATE" == "enabled" ]]; then
+        echo "${b}OpenVPN indicator is currently ENABLED${n}"
+        echo "Disabling autostart..."
+        mkdir -p "$HOME/.config/autostart"
+        cp "$AUTOSTART_SRC" "$AUTOSTART_USER"
+        echo "Hidden=true" >> "$AUTOSTART_USER"
+        # Stop the running indicator if any
+        pkill -f openvpn3-indicator 2>/dev/null || true
+        echo ""
+        echo "${b}OpenVPN indicator is now DISABLED${n}"
+        echo "It will no longer start automatically on login."
+    else
+        echo "${b}OpenVPN indicator is currently DISABLED${n}"
+        echo "Enabling autostart..."
+        # Remove user override to use system default, or create enabled override
+        if [[ -f "$AUTOSTART_USER" ]]; then
+            rm "$AUTOSTART_USER"
+        fi
+        # If system default is also disabled, create an enabled user override
+        if grep -q "Hidden=true" "$AUTOSTART_SRC" 2>/dev/null; then
+            mkdir -p "$HOME/.config/autostart"
+            grep -v "Hidden=true" "$AUTOSTART_SRC" > "$AUTOSTART_USER"
+        fi
+        # Start the indicator now
+        nohup openvpn3-indicator >/dev/null 2>&1 &
+        echo ""
+        echo "${b}OpenVPN indicator is now ENABLED${n}"
+        echo "It will start automatically on login."
+    fi

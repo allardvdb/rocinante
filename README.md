@@ -12,7 +12,7 @@ This image includes the following modifications to the base Bluefin-DX:
 
 ### Software Additions
 - **1Password** - Password manager (run `ujust setup-1password-browser` for Flatpak browser integration)
-- **OpenVPN3** - VPN client with indicator and SELinux workarounds
+- **OpenVPN3** - VPN client with SELinux workarounds (run `ujust toggle-openvpn-indicator` to enable tray icon)
 - **tmux** - Terminal multiplexer
 
 ### System Configurations
@@ -67,9 +67,10 @@ After installation, run the first-time setup to configure user-level integration
 ujust first-run
 
 # Or run individual setup tasks:
-ujust setup-1password-browser  # Configure 1Password for Flatpak browsers
-ujust setup-yubikey-ssh        # Configure YubiKey for SSH authentication
-ujust toggle-suspend           # Disable suspend for remote access
+ujust setup-1password-browser   # Configure 1Password for Flatpak browsers
+ujust setup-yubikey-ssh         # Configure YubiKey for SSH authentication
+ujust toggle-openvpn-indicator  # Enable OpenVPN system tray indicator
+ujust toggle-suspend            # Disable suspend for remote access
 ```
 
 ## Repository Structure
