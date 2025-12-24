@@ -119,3 +119,82 @@ toggle-suspend:
         echo "${b}Suspend is now DISABLED${n}"
         echo "System will stay awake for remote access."
     fi
+
+# Configure 1Password for Flatpak browsers (Firefox, Chrome, Brave, etc.)
+[group('Rocinante')]
+setup-1password-browser:
+    #!/usr/bin/env bash
+    source /usr/lib/ujust/ujust.sh
+    set -euo pipefail
+
+    echo "${b}Setting up 1Password Flatpak browser integration...${n}"
+
+    # Detect installed Flatpak browsers
+    BROWSERS=()
+    for browser in org.mozilla.firefox com.google.Chrome com.brave.Browser org.chromium.Chromium; do
+        if flatpak list 2>/dev/null | grep -q "$browser"; then
+            BROWSERS+=("$browser")
+            echo "Found: $browser"
+        fi
+    done
+
+    if [[ ${#BROWSERS[@]} -eq 0 ]]; then
+        echo "No supported Flatpak browsers found."
+        echo "Install a Flatpak browser first (e.g., flatpak install flathub org.mozilla.firefox)"
+        exit 0
+    fi
+
+    # Clone and run integration script
+    TEMP_DIR=$(mktemp -d)
+    trap "rm -rf $TEMP_DIR" EXIT
+    cd "$TEMP_DIR"
+
+    echo "Downloading integration script..."
+    if git clone --depth 1 --quiet https://github.com/FlyinPancake/1password-flatpak-browser-integration; then
+        cd 1password-flatpak-browser-integration
+        for browser in "${BROWSERS[@]}"; do
+            echo ""
+            echo "Configuring ${b}$browser${n}..."
+            echo "$browser" | ./1password-flatpak-browser-integration.sh
+        done
+        echo ""
+        echo "${b}Done!${n}"
+        echo "Restart your browser(s) to complete setup."
+        echo "Then verify in 1Password: Settings → Browser → check extension is connected."
+    else
+        echo "Failed to download integration script"
+        exit 1
+    fi
+
+# Run first-time user setup tasks
+[group('Rocinante')]
+first-run:
+    #!/usr/bin/env bash
+    source /usr/lib/ujust/ujust.sh
+    set -euo pipefail
+
+    echo "${b}╔══════════════════════════════════════╗${n}"
+    echo "${b}║     Rocinante First-Run Setup        ║${n}"
+    echo "${b}╚══════════════════════════════════════╝${n}"
+    echo ""
+
+    # 1Password browser integration
+    if command -v 1password >/dev/null 2>&1; then
+        echo "${b}[1/2] 1Password Browser Integration${n}"
+        if flatpak list 2>/dev/null | grep -qE "org.mozilla.firefox|com.google.Chrome|com.brave.Browser"; then
+            echo "Flatpak browser detected. Setting up 1Password integration..."
+            ujust setup-1password-browser
+        else
+            echo "No Flatpak browsers found, skipping 1Password browser setup."
+        fi
+    else
+        echo "1Password not found, skipping browser integration."
+    fi
+
+    echo ""
+    echo "${b}[2/2] Additional Setup${n}"
+    echo "Other setup tasks you may want to run:"
+    echo "  - ujust setup-yubikey-ssh    # If using YubiKey for SSH"
+    echo "  - ujust toggle-suspend       # If using for remote access"
+    echo ""
+    echo "${b}First-run setup complete!${n}"
