@@ -2,6 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Git Workflow
+
+**IMPORTANT: All changes must go through a branch and pull request.**
+
+- Never commit directly to `main` - branch protection is enabled
+- Create a feature branch for all changes (even small ones)
+- Create a PR for review before merging
+- Use descriptive branch names (e.g., `fix-1password-docs`, `add-new-recipe`)
+
 ## Repository Overview
 
 This is a custom Universal Blue / Bluefin Linux image that creates a personalized developer workstation based on Fedora Silverblue/Kinoite. The image is built using GitHub Actions and published to GitHub Container Registry (ghcr.io).
@@ -44,19 +53,17 @@ Built on top of: `ghcr.io/ublue-os/bluefin-dx:stable`
 ### 1Password Integration
 - Desktop app installed via RPM
 - CLI tool (op) installed and configured
-- Custom Flatpak browser integration for Firefox
+- Flatpak browser integration via ujust recipe
 - SSH agent integration for Git operations
 - Located in: `build_files/1password.sh`
 
-**Known Issues**:
-- Flatpak browser integration requires manual setup for existing users
-- Planning to refactor to ujust pattern (see issue #5)
+**User Setup**: Run `ujust setup-1password-browser` after installation
 
 ### Developer Tools
 - GitHub CLI (gh) for repository management
 - Homebrew for additional package management
 - Custom fonts for terminal/IDE
-- OpenVPN client with GUI indicator
+- OpenVPN client (indicator disabled by default, enable with `ujust toggle-openvpn-indicator`)
 - Just task runner for automation
 
 ### System Configuration
@@ -96,11 +103,13 @@ podman run -it --rm rocinante:local bash
 3. Test locally with podman build
 4. Push to trigger GitHub Actions build
 
-### Just Recipes (Future)
-Planning to implement ujust patterns for user-level configuration:
-- `ujust setup-1password-browser` - Configure browser integration
-- `ujust first-run` - Initial user setup
-- `ujust update` - System updates
+### ujust Recipes
+User-level configuration via ujust (located in `system_files/usr/share/ublue-os/just/rocinante.just`):
+- `ujust first-run` - Run all first-time setup tasks
+- `ujust setup-1password-browser` - Configure 1Password for Flatpak browsers
+- `ujust setup-yubikey-ssh` - Configure YubiKey for SSH authentication
+- `ujust toggle-openvpn-indicator` - Enable/disable OpenVPN tray indicator
+- `ujust toggle-suspend` - Toggle system suspend for remote access
 
 ## Common Tasks
 
@@ -144,15 +153,9 @@ Images are published to GitHub Container Registry:
 
 ## Future Improvements
 
-1. **Refactor to ujust pattern** (#5)
-   - Move user setup out of image
-   - Implement just recipes for configuration
-   - Better separation of system vs user concerns
-
-3. **Additional Integrations**
-   - Automated Flatpak app installation
-   - Homebrew package lists
-   - Dotfiles management
+- Automated Flatpak app installation
+- Homebrew package lists
+- Dotfiles management
 
 ## Troubleshooting
 
@@ -162,9 +165,9 @@ Images are published to GitHub Container Registry:
 - Ensure proper directory creation before file writes
 
 ### 1Password Browser Integration
-- For existing users: Copy from `/etc/skel/.config/autostart/`
-- Or manually run: `/usr/libexec/1password/setup-1password-flatpak.sh`
-- Verify with: Check 1Password browser extension connection status
+- Run: `ujust setup-1password-browser`
+- Restart browser after setup
+- Verify: Check 1Password browser extension shows "Connected"
 
 ## References
 
