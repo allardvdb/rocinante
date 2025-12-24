@@ -22,3 +22,11 @@ systemctl enable openvpn-init-config.service
 
 # no need to check as the command seems to be idempotent
 setsebool -P dbus_access_tuntap_device=1
+
+# Disable indicator autostart by default (user can enable with: ujust toggle-openvpn-indicator)
+# This prevents the indicator from showing on systems that don't use OpenVPN
+if [[ -f /etc/xdg/autostart/openvpn3-indicator.desktop ]]; then
+    echo "Hidden=true" >> /etc/xdg/autostart/openvpn3-indicator.desktop
+fi
+
+echo "OpenVPN installed. Run 'ujust toggle-openvpn-indicator' to enable the system tray indicator."

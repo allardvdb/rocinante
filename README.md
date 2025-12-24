@@ -11,8 +11,8 @@ Built on: `ghcr.io/ublue-os/bluefin-dx:stable`
 This image includes the following modifications to the base Bluefin-DX:
 
 ### Software Additions
-- **1Password** - Password manager with automatic Flatpak browser integration
-- **OpenVPN3** - VPN client with indicator and SELinux workarounds
+- **1Password** - Password manager (run `ujust setup-1password-browser` for Flatpak browser integration)
+- **OpenVPN3** - VPN client with SELinux workarounds (run `ujust toggle-openvpn-indicator` to enable tray icon)
 - **tmux** - Terminal multiplexer
 
 ### System Configurations
@@ -48,10 +48,29 @@ just build-iso
 
 ```bash
 # Switch existing system to this image
-sudo bootc switch ghcr.io/<your-github-username>/rocinante
+sudo bootc switch ghcr.io/allardvdb/rocinante
+
+# For NVIDIA systems
+sudo bootc switch ghcr.io/allardvdb/rocinante-nvidia
 
 # Or use the ISO for fresh installation
-# Build ISO first with: just build-iso
+just build-iso          # Standard variant
+just build-iso-nvidia   # NVIDIA variant
+```
+
+## First-Time Setup
+
+After installation, run the first-time setup to configure user-level integrations:
+
+```bash
+# Run all first-time setup tasks
+ujust first-run
+
+# Or run individual setup tasks:
+ujust setup-1password-browser   # Configure 1Password for Flatpak browsers
+ujust setup-yubikey-ssh         # Configure YubiKey for SSH authentication
+ujust toggle-openvpn-indicator  # Enable OpenVPN system tray indicator
+ujust toggle-suspend            # Disable suspend for remote access
 ```
 
 ## Repository Structure

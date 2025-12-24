@@ -119,3 +119,145 @@ toggle-suspend:
         echo "${b}Suspend is now DISABLED${n}"
         echo "System will stay awake for remote access."
     fi
+
+# Configure 1Password for Flatpak browsers (Firefox, Chrome, Brave, etc.)
+[group('Rocinante')]
+setup-1password-browser:
+    #!/usr/bin/env bash
+    source /usr/lib/ujust/ujust.sh
+    set -euo pipefail
+
+    echo "${b}Setting up 1Password Flatpak browser integration...${n}"
+
+    # Detect installed Flatpak browsers
+    BROWSERS=()
+    for browser in org.mozilla.firefox com.google.Chrome com.brave.Browser org.chromium.Chromium; do
+        if flatpak list 2>/dev/null | grep -q "$browser"; then
+            BROWSERS+=("$browser")
+            echo "Found: $browser"
+        fi
+    done
+
+    if [[ ${#BROWSERS[@]} -eq 0 ]]; then
+        echo "No supported Flatpak browsers found."
+        echo "Install a Flatpak browser first (e.g., flatpak install flathub org.mozilla.firefox)"
+        exit 0
+    fi
+
+    # Clone and run integration script
+    TEMP_DIR=$(mktemp -d)
+    trap "rm -rf $TEMP_DIR" EXIT
+    cd "$TEMP_DIR"
+
+    echo "Downloading integration script..."
+    if git clone --depth 1 --quiet https://github.com/FlyinPancake/1password-flatpak-browser-integration; then
+        cd 1password-flatpak-browser-integration
+        for browser in "${BROWSERS[@]}"; do
+            echo ""
+            echo "Configuring ${b}$browser${n}..."
+            echo "$browser" | ./1password-flatpak-browser-integration.sh
+        done
+        echo ""
+        echo "${b}Done!${n}"
+        echo "Restart your browser(s) to complete setup."
+        echo "Then verify in 1Password: Settings → Browser → check extension is connected."
+    else
+        echo "Failed to download integration script"
+        exit 1
+    fi
+
+# Run first-time user setup tasks
+[group('Rocinante')]
+first-run:
+    #!/usr/bin/env bash
+    source /usr/lib/ujust/ujust.sh
+    set -euo pipefail
+
+    echo "${b}╔══════════════════════════════════════╗${n}"
+    echo "${b}║     Rocinante First-Run Setup        ║${n}"
+    echo "${b}╚══════════════════════════════════════╝${n}"
+    echo ""
+
+    # 1Password browser integration
+    if command -v 1password >/dev/null 2>&1; then
+        echo "${b}[1/2] 1Password Browser Integration${n}"
+        if flatpak list 2>/dev/null | grep -qE "org.mozilla.firefox|com.google.Chrome|com.brave.Browser"; then
+            echo "Flatpak browser detected. Setting up 1Password integration..."
+            ujust setup-1password-browser
+        else
+            echo "No Flatpak browsers found, skipping 1Password browser setup."
+        fi
+    else
+        echo "1Password not found, skipping browser integration."
+    fi
+
+    echo ""
+    echo "${b}[2/2] Additional Setup${n}"
+    echo "Other setup tasks you may want to run:"
+    echo "  - ujust setup-yubikey-ssh       # If using YubiKey for SSH"
+    echo "  - ujust toggle-suspend          # If using for remote access"
+    echo "  - ujust toggle-openvpn-indicator # If using OpenVPN"
+    echo ""
+    echo "${b}First-run setup complete!${n}"
+
+# Toggle OpenVPN indicator autostart
+[group('Rocinante')]
+toggle-openvpn-indicator:
+    #!/usr/bin/env bash
+    source /usr/lib/ujust/ujust.sh
+    set -euo pipefail
+
+    AUTOSTART_SRC="/etc/xdg/autostart/openvpn3-indicator.desktop"
+    AUTOSTART_USER="$HOME/.config/autostart/openvpn3-indicator.desktop"
+
+    # Check if system autostart exists
+    if [[ ! -f "$AUTOSTART_SRC" ]]; then
+        echo "OpenVPN indicator is not installed."
+        exit 1
+    fi
+
+    # Check current state - user override takes precedence
+    if [[ -f "$AUTOSTART_USER" ]]; then
+        if grep -q "Hidden=true" "$AUTOSTART_USER" 2>/dev/null; then
+            CURRENT_STATE="disabled"
+        else
+            CURRENT_STATE="enabled"
+        fi
+    else
+        # No user override - check if system default is masked
+        if grep -q "Hidden=true" "$AUTOSTART_SRC" 2>/dev/null; then
+            CURRENT_STATE="disabled"
+        else
+            CURRENT_STATE="enabled"
+        fi
+    fi
+
+    if [[ "$CURRENT_STATE" == "enabled" ]]; then
+        echo "${b}OpenVPN indicator is currently ENABLED${n}"
+        echo "Disabling autostart..."
+        mkdir -p "$HOME/.config/autostart"
+        cp "$AUTOSTART_SRC" "$AUTOSTART_USER"
+        echo "Hidden=true" >> "$AUTOSTART_USER"
+        # Stop the running indicator if any
+        pkill -f openvpn3-indicator 2>/dev/null || true
+        echo ""
+        echo "${b}OpenVPN indicator is now DISABLED${n}"
+        echo "It will no longer start automatically on login."
+    else
+        echo "${b}OpenVPN indicator is currently DISABLED${n}"
+        echo "Enabling autostart..."
+        # Remove user override to use system default, or create enabled override
+        if [[ -f "$AUTOSTART_USER" ]]; then
+            rm "$AUTOSTART_USER"
+        fi
+        # If system default is also disabled, create an enabled user override
+        if grep -q "Hidden=true" "$AUTOSTART_SRC" 2>/dev/null; then
+            mkdir -p "$HOME/.config/autostart"
+            grep -v "Hidden=true" "$AUTOSTART_SRC" > "$AUTOSTART_USER"
+        fi
+        # Start the indicator now
+        nohup openvpn3-indicator >/dev/null 2>&1 &
+        echo ""
+        echo "${b}OpenVPN indicator is now ENABLED${n}"
+        echo "It will start automatically on login."
+    fi
