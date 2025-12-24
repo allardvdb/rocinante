@@ -2,7 +2,7 @@
 
 Custom [Bluefin-DX](https://projectbluefin.io/) image with 1Password, OpenVPN, and YubiKey support.
 
-Built using the [ublue-os/image-template](https://github.com/ublue-os/image-template) pattern.
+Built using [ublue-os/image-template](https://github.com/ublue-os/image-template).
 
 ## Installation
 
@@ -26,14 +26,14 @@ Individual recipes:
 - `ujust toggle-openvpn-indicator` — OpenVPN tray icon
 - `ujust toggle-suspend` — Disable suspend for remote access
 
-## What's Included
+## The extra flavour on top of vanilla bluefin-dx.
 
 | Software | Notes |
 |----------|-------|
-| 1Password | Desktop + CLI |
+| 1Password | Desktop + CLI + Flatpak browser integration |
 | OpenVPN3 | Indicator disabled by default |
-| tmux | Terminal multiplexer |
 | nvidia-container-toolkit | NVIDIA variant only |
+| rocinante.just | With some custom recipies |
 
 ## Docs
 
