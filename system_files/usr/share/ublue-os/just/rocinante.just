@@ -95,29 +95,43 @@ toggle-suspend:
     source /usr/lib/ujust/ujust.sh
     set -euo pipefail
 
-    CONFIG_FILE="/etc/systemd/logind.conf.d/no-suspend.conf"
+    LOGIND_CONFIG="/etc/systemd/logind.conf.d/no-suspend.conf"
+    GDM_CONFIG="/etc/dconf/db/gdm.d/99-no-suspend"
 
-    if [[ -f "$CONFIG_FILE" ]]; then
+    if [[ -f "$LOGIND_CONFIG" ]]; then
         echo "${b}Suspend is currently DISABLED${n}"
-        echo "Removing $CONFIG_FILE to re-enable suspend..."
-        sudo rm "$CONFIG_FILE"
+        echo ""
+        echo "Removing configurations to re-enable suspend..."
+        sudo rm -f "$LOGIND_CONFIG"
+        sudo rm -f "$GDM_CONFIG"
+        sudo dconf update
         sudo systemctl restart systemd-logind
         echo ""
         echo "${b}Suspend is now ENABLED${n}"
         echo "System will suspend normally when idle or lid is closed."
     else
         echo "${b}Suspend is currently ENABLED${n}"
-        echo "Creating $CONFIG_FILE to disable suspend..."
+        echo ""
+        echo "Configuring logind to prevent suspend..."
         sudo mkdir -p /etc/systemd/logind.conf.d
-        echo "[Login]" | sudo tee "$CONFIG_FILE" > /dev/null
-        echo "# Prevent automatic suspend for remote access" | sudo tee -a "$CONFIG_FILE" > /dev/null
-        echo "IdleAction=ignore" | sudo tee -a "$CONFIG_FILE" > /dev/null
-        echo "HandleLidSwitch=ignore" | sudo tee -a "$CONFIG_FILE" > /dev/null
-        echo "HandleLidSwitchExternalPower=ignore" | sudo tee -a "$CONFIG_FILE" > /dev/null
+        echo "[Login]" | sudo tee "$LOGIND_CONFIG" > /dev/null
+        echo "# Prevent automatic suspend for remote access" | sudo tee -a "$LOGIND_CONFIG" > /dev/null
+        echo "IdleAction=ignore" | sudo tee -a "$LOGIND_CONFIG" > /dev/null
+        echo "HandleLidSwitch=ignore" | sudo tee -a "$LOGIND_CONFIG" > /dev/null
+        echo "HandleLidSwitchExternalPower=ignore" | sudo tee -a "$LOGIND_CONFIG" > /dev/null
+
+        echo "Configuring GDM to prevent suspend at login screen..."
+        sudo mkdir -p /etc/dconf/db/gdm.d
+        echo "# Prevent GDM from suspending while waiting for login" | sudo tee "$GDM_CONFIG" > /dev/null
+        echo "[org/gnome/settings-daemon/plugins/power]" | sudo tee -a "$GDM_CONFIG" > /dev/null
+        echo "sleep-inactive-ac-type='nothing'" | sudo tee -a "$GDM_CONFIG" > /dev/null
+        echo "sleep-inactive-battery-type='nothing'" | sudo tee -a "$GDM_CONFIG" > /dev/null
+        sudo dconf update
+
         sudo systemctl restart systemd-logind
         echo ""
         echo "${b}Suspend is now DISABLED${n}"
-        echo "System will stay awake for remote access."
+        echo "System will stay awake for remote access, even at the login screen."
     fi
 
 # Configure 1Password for Flatpak browsers (Firefox, Chrome, Brave, etc.)
