@@ -18,10 +18,8 @@ setup-yubikey-ssh:
     # Step 2: Configure SSH_AUTH_SOCK via environment.d
     mkdir -p ~/.config/environment.d
     if [[ ! -f ~/.config/environment.d/10-ssh-agent.conf ]]; then
-        cat > ~/.config/environment.d/10-ssh-agent.conf << 'EOF'
-# Use systemd ssh-agent for FIDO2/sk-ssh keys (YubiKey Bio/5)
-SSH_AUTH_SOCK=${XDG_RUNTIME_DIR}/ssh-agent.socket
-EOF
+        echo "# Use systemd ssh-agent for FIDO2/sk-ssh keys (YubiKey Bio/5)" > ~/.config/environment.d/10-ssh-agent.conf
+        echo 'SSH_AUTH_SOCK=${XDG_RUNTIME_DIR}/ssh-agent.socket' >> ~/.config/environment.d/10-ssh-agent.conf
         echo "Created ~/.config/environment.d/10-ssh-agent.conf"
     else
         echo "~/.config/environment.d/10-ssh-agent.conf already exists"
@@ -109,12 +107,10 @@ enable-yubikey-gpg:
     chmod 700 ~/.gnupg
 
     if [[ ! -f ~/.gnupg/scdaemon.conf ]]; then
-        cat > ~/.gnupg/scdaemon.conf << 'EOF'
-# Disable scdaemon's built-in CCID driver to prevent conflict with pcscd
-disable-ccid
-# Allow shared access to the card
-pcsc-shared
-EOF
+        echo "# Disable scdaemon's built-in CCID driver to prevent conflict with pcscd" > ~/.gnupg/scdaemon.conf
+        echo "disable-ccid" >> ~/.gnupg/scdaemon.conf
+        echo "# Allow shared access to the card" >> ~/.gnupg/scdaemon.conf
+        echo "pcsc-shared" >> ~/.gnupg/scdaemon.conf
         echo "Created ~/.gnupg/scdaemon.conf"
     fi
 
