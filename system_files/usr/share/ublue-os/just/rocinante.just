@@ -210,6 +210,34 @@ setup-1password-browser:
         exit 0
     fi
 
+    # Ensure native-messaging-hosts directories exist for each browser
+    # The integration script expects these to exist
+    for browser in "${BROWSERS[@]}"; do
+        case "$browser" in
+            org.mozilla.firefox)
+                NMH_DIR="$HOME/.var/app/$browser/.mozilla/native-messaging-hosts"
+                ;;
+            com.google.Chrome|com.brave.Browser|org.chromium.Chromium)
+                # Chromium-based browsers use different paths
+                case "$browser" in
+                    com.google.Chrome)
+                        NMH_DIR="$HOME/.var/app/$browser/config/google-chrome/NativeMessagingHosts"
+                        ;;
+                    com.brave.Browser)
+                        NMH_DIR="$HOME/.var/app/$browser/config/BraveSoftware/Brave-Browser/NativeMessagingHosts"
+                        ;;
+                    org.chromium.Chromium)
+                        NMH_DIR="$HOME/.var/app/$browser/config/chromium/NativeMessagingHosts"
+                        ;;
+                esac
+                ;;
+        esac
+        if [[ -n "${NMH_DIR:-}" ]] && [[ ! -d "$NMH_DIR" ]]; then
+            echo "Creating $NMH_DIR"
+            mkdir -p "$NMH_DIR"
+        fi
+    done
+
     # Clone and run integration script
     TEMP_DIR=$(mktemp -d)
     trap "rm -rf $TEMP_DIR" EXIT
