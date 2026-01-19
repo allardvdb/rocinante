@@ -5,8 +5,14 @@
 [group('Rocinante')]
 setup-yubikey-ssh:
     #!/usr/bin/env bash
-    source /usr/lib/ujust/ujust.sh
     set -euo pipefail
+    # Source ujust library if available, otherwise define fallbacks
+    if [[ -f /usr/lib/ujust/ujust.sh ]]; then
+        source /usr/lib/ujust/ujust.sh
+    else
+        b=$(tput bold 2>/dev/null) || b=""
+        n=$(tput sgr0 2>/dev/null) || n=""
+    fi
 
     echo "${b}Setting up YubiKey for SSH/git signing (FIDO2)...${n}"
     echo ""
@@ -97,7 +103,13 @@ setup-yubikey-ssh:
 [group('Rocinante')]
 enable-yubikey-gpg:
     #!/usr/bin/env bash
-    source /usr/lib/ujust/ujust.sh
+    # Source ujust library if available, otherwise define fallbacks
+    if [[ -f /usr/lib/ujust/ujust.sh ]]; then
+        source /usr/lib/ujust/ujust.sh
+    else
+        b=$(tput bold 2>/dev/null) || b=""
+        n=$(tput sgr0 2>/dev/null) || n=""
+    fi
 
     echo "${b}Enabling GPG/YubiKey for this shell session...${n}"
     echo ""
@@ -136,8 +148,14 @@ enable-yubikey-gpg:
 [group('Rocinante')]
 toggle-suspend:
     #!/usr/bin/env bash
-    source /usr/lib/ujust/ujust.sh
     set -euo pipefail
+    # Source ujust library if available, otherwise define fallbacks
+    if [[ -f /usr/lib/ujust/ujust.sh ]]; then
+        source /usr/lib/ujust/ujust.sh
+    else
+        b=$(tput bold 2>/dev/null) || b=""
+        n=$(tput sgr0 2>/dev/null) || n=""
+    fi
 
     LOGIND_CONFIG="/etc/systemd/logind.conf.d/no-suspend.conf"
     GDM_CONFIG="/etc/dconf/db/gdm.d/99-no-suspend"
@@ -182,8 +200,14 @@ toggle-suspend:
 [group('Rocinante')]
 setup-1password-browser:
     #!/usr/bin/env bash
-    source /usr/lib/ujust/ujust.sh
     set -euo pipefail
+    # Source ujust library if available, otherwise define fallbacks
+    if [[ -f /usr/lib/ujust/ujust.sh ]]; then
+        source /usr/lib/ujust/ujust.sh
+    else
+        b=$(tput bold 2>/dev/null) || b=""
+        n=$(tput sgr0 2>/dev/null) || n=""
+    fi
 
     echo "${b}Setting up 1Password Flatpak browser integration...${n}"
 
@@ -228,8 +252,14 @@ setup-1password-browser:
 [group('Rocinante')]
 first-run:
     #!/usr/bin/env bash
-    source /usr/lib/ujust/ujust.sh
     set -euo pipefail
+    # Source ujust library if available, otherwise define fallbacks
+    if [[ -f /usr/lib/ujust/ujust.sh ]]; then
+        source /usr/lib/ujust/ujust.sh
+    else
+        b=$(tput bold 2>/dev/null) || b=""
+        n=$(tput sgr0 2>/dev/null) || n=""
+    fi
 
     echo "${b}╔══════════════════════════════════════╗${n}"
     echo "${b}║     Rocinante First-Run Setup        ║${n}"
@@ -262,8 +292,14 @@ first-run:
 [group('Rocinante')]
 toggle-openvpn-indicator:
     #!/usr/bin/env bash
-    source /usr/lib/ujust/ujust.sh
     set -euo pipefail
+    # Source ujust library if available, otherwise define fallbacks
+    if [[ -f /usr/lib/ujust/ujust.sh ]]; then
+        source /usr/lib/ujust/ujust.sh
+    else
+        b=$(tput bold 2>/dev/null) || b=""
+        n=$(tput sgr0 2>/dev/null) || n=""
+    fi
 
     AUTOSTART_SRC="/etc/xdg/autostart/openvpn3-indicator.desktop"
     AUTOSTART_USER="$HOME/.config/autostart/openvpn3-indicator.desktop"
@@ -319,3 +355,318 @@ toggle-openvpn-indicator:
         echo "${b}OpenVPN indicator is now ENABLED${n}"
         echo "It will start automatically on login."
     fi
+
+# Configure YubiKey for PAM authentication (sudo, polkit, screen unlock)
+[group('Rocinante')]
+configure-yubikey-pam ACTION="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Source ujust library if available, otherwise define fallbacks
+    if [[ -f /usr/lib/ujust/ujust.sh ]]; then
+        source /usr/lib/ujust/ujust.sh
+    else
+        b=$(tput bold 2>/dev/null) || b=""
+        n=$(tput sgr0 2>/dev/null) || n=""
+        red=$(tput setaf 1 2>/dev/null) || red=""
+        green=$(tput setaf 2 2>/dev/null) || green=""
+        yellow=$(tput setaf 3 2>/dev/null) || yellow=""
+        cyan=$(tput setaf 6 2>/dev/null) || cyan=""
+    fi
+
+    U2F_KEYS="$HOME/.config/Yubico/u2f_keys"
+    HOSTNAME=$(hostname)
+
+    # Check prerequisites
+    if ! command -v pamu2fcfg &> /dev/null; then
+        echo "${red}${b}Error:${n} pam-u2f is not installed."
+        echo ""
+        echo "This package should be included in the rocinante image."
+        echo "If testing locally, install with: ${b}sudo dnf install pam-u2f${n}"
+        exit 1
+    fi
+
+    # Check for YubiKey
+    if ! lsusb | grep -qi yubi; then
+        echo "${red}${b}Error:${n} No YubiKey detected. Please insert your YubiKey."
+        exit 1
+    fi
+
+    # Action selection
+    ACTION_ARG="{{ ACTION }}"
+    if [[ -z "$ACTION_ARG" ]]; then
+        echo "${b}YubiKey PAM Configuration${n}"
+        echo ""
+        if command -v gum &> /dev/null; then
+            ACTION=$(gum choose \
+                "Setup PAM authentication" \
+                "Register additional key" \
+                "Show current configuration" \
+                "Remove configuration")
+        else
+            echo "Select an action:"
+            echo "  1) Setup PAM authentication"
+            echo "  2) Register additional key"
+            echo "  3) Show current configuration"
+            echo "  4) Remove configuration"
+            echo ""
+            read -p "Choice [1-4]: " choice
+            case "$choice" in
+                1) ACTION="Setup PAM authentication" ;;
+                2) ACTION="Register additional key" ;;
+                3) ACTION="Show current configuration" ;;
+                4) ACTION="Remove configuration" ;;
+                *) echo "Invalid choice"; exit 1 ;;
+            esac
+        fi
+    else
+        ACTION="$ACTION_ARG"
+    fi
+
+    case "$ACTION" in
+        "Setup PAM authentication"|"setup")
+            # Setup PAM authentication
+            echo ""
+            echo "${b}YubiKey PAM Setup${n}"
+            echo "================="
+            echo ""
+
+            # Check if already configured
+            if [[ -f "$U2F_KEYS" ]]; then
+                echo "${yellow}${b}Warning:${n} u2f_keys already exists at $U2F_KEYS"
+                echo ""
+                read -p "Overwrite existing configuration? [y/N]: " confirm
+                if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+                    echo "Cancelled. Use 'Register additional key' to add more keys."
+                    exit 0
+                fi
+            fi
+
+            # Create directory
+            mkdir -p "$(dirname "$U2F_KEYS")"
+
+            echo "${cyan}Step 1: Register primary YubiKey${n}"
+            echo "Touch your YubiKey when it blinks..."
+            echo ""
+
+            if pamu2fcfg -o "pam://$HOSTNAME" -i "pam://$HOSTNAME" > "$U2F_KEYS"; then
+                echo "${green}${b}✓${n} Primary key registered"
+            else
+                echo "${red}${b}Error:${n} Failed to register YubiKey"
+                exit 1
+            fi
+
+            # Backup key
+            echo ""
+            read -p "Register a backup YubiKey? (recommended) [y/N]: " backup_confirm
+            if [[ "$backup_confirm" =~ ^[Yy]$ ]]; then
+                echo ""
+                echo "Remove primary YubiKey and insert backup key..."
+                read -p "Press Enter when ready..."
+
+                echo "Touch your backup YubiKey when it blinks..."
+                if pamu2fcfg -o "pam://$HOSTNAME" -i "pam://$HOSTNAME" -n >> "$U2F_KEYS"; then
+                    echo "${green}${b}✓${n} Backup key registered"
+                else
+                    echo "${yellow}${b}Warning:${n} Failed to register backup key (continuing anyway)"
+                fi
+            fi
+
+            # authselect configuration
+            echo ""
+            echo "${cyan}Step 2: Configure authselect${n}"
+            echo ""
+
+            CURRENT_PROFILE=$(authselect current 2>/dev/null | head -1 || echo "")
+            echo "Current profile: ${CURRENT_PROFILE:-none}"
+
+            if echo "$CURRENT_PROFILE" | grep -q "with-pam-u2f"; then
+                echo "${green}${b}✓${n} PAM U2F already enabled in authselect"
+            else
+                echo ""
+                echo "This will enable YubiKey authentication for:"
+                echo "  - sudo"
+                echo "  - 1Password / polkit prompts"
+                echo "  - Other system-auth consumers"
+                echo ""
+
+                read -p "Enable authselect with-pam-u2f? [Y/n]: " auth_confirm
+                if [[ ! "$auth_confirm" =~ ^[Nn]$ ]]; then
+                    if sudo authselect select sssd with-pam-u2f --force; then
+                        echo "${green}${b}✓${n} authselect configured"
+                    else
+                        echo "${red}${b}Error:${n} Failed to configure authselect"
+                        exit 1
+                    fi
+                fi
+            fi
+
+            # Screen unlock option
+            echo ""
+            echo "${cyan}Step 3: Screen unlock configuration (optional)${n}"
+            echo ""
+            echo "By default, GDM boot login uses password (to unlock keyring)."
+            echo "Screen unlock can use YubiKey via gdm-fingerprint."
+            echo ""
+
+            read -p "Configure YubiKey for screen unlock? [y/N]: " unlock_confirm
+            if [[ "$unlock_confirm" =~ ^[Yy]$ ]]; then
+                GDM_FP="/etc/pam.d/gdm-fingerprint"
+                if [[ -f "$GDM_FP" ]]; then
+                    if grep -q "pam_u2f.so" "$GDM_FP"; then
+                        echo "${green}${b}✓${n} Already configured in gdm-fingerprint"
+                    else
+                        echo "Adding pam_u2f to gdm-fingerprint..."
+                        sudo sed -i '1a auth     sufficient pam_u2f.so cue' "$GDM_FP"
+                        echo "${green}${b}✓${n} gdm-fingerprint configured"
+                    fi
+                else
+                    echo "${yellow}${b}Warning:${n} gdm-fingerprint not found (may not be applicable)"
+                fi
+            fi
+
+            # Verification
+            echo ""
+            echo "${cyan}Step 4: Verification${n}"
+            echo ""
+            echo "Testing sudo with YubiKey..."
+            echo "Touch your YubiKey when prompted..."
+            echo ""
+
+            if sudo -k && sudo echo "${green}${b}✓ YubiKey sudo works!${n}"; then
+                echo ""
+                echo "${green}${b}Setup complete!${n}"
+                echo ""
+                echo "Summary:"
+                echo "  - u2f_keys: $U2F_KEYS"
+                echo "  - authselect: with-pam-u2f enabled"
+                echo "  - YubiKey OR password accepted for sudo/polkit"
+            else
+                echo "${yellow}${b}Warning:${n} sudo test failed or cancelled"
+                echo "You can still authenticate with password as fallback."
+            fi
+            ;;
+
+        "Register additional key"|"register")
+            # Register additional key
+            echo ""
+            if [[ ! -f "$U2F_KEYS" ]]; then
+                echo "${red}${b}Error:${n} No existing u2f_keys found."
+                echo "Run 'Setup PAM authentication' first."
+                exit 1
+            fi
+
+            KEY_COUNT=$(wc -l < "$U2F_KEYS")
+            echo "Current registered keys: $KEY_COUNT"
+            echo ""
+
+            echo "Insert the YubiKey you want to register..."
+            echo "Touch it when it blinks..."
+            echo ""
+
+            if pamu2fcfg -o "pam://$HOSTNAME" -i "pam://$HOSTNAME" -n >> "$U2F_KEYS"; then
+                NEW_COUNT=$(wc -l < "$U2F_KEYS")
+                echo "${green}${b}✓${n} Additional key registered"
+                echo "  $NEW_COUNT key(s) now registered"
+            else
+                echo "${red}${b}Error:${n} Failed to register key"
+                exit 1
+            fi
+            ;;
+
+        "Show current configuration"|"show")
+            # Show configuration
+            echo ""
+            echo "${b}YubiKey PAM Configuration${n}"
+            echo "========================="
+            echo ""
+
+            # u2f_keys status
+            echo "${cyan}u2f_keys:${n}"
+            if [[ -f "$U2F_KEYS" ]]; then
+                KEY_COUNT=$(wc -l < "$U2F_KEYS")
+                echo "  Location: $U2F_KEYS"
+                echo "  Keys registered: $KEY_COUNT"
+                echo "  Origin/AppID: pam://$HOSTNAME"
+            else
+                echo "  ${yellow}Not configured${n}"
+            fi
+            echo ""
+
+            # authselect status
+            echo "${cyan}authselect:${n}"
+            if command -v authselect &> /dev/null; then
+                authselect current 2>/dev/null | sed 's/^/  /' || echo "  Not configured"
+            else
+                echo "  authselect not available"
+            fi
+            echo ""
+
+            # gdm-fingerprint status
+            echo "${cyan}gdm-fingerprint (screen unlock):${n}"
+            if [[ -f /etc/pam.d/gdm-fingerprint ]]; then
+                if grep -q "pam_u2f.so" /etc/pam.d/gdm-fingerprint; then
+                    echo "  ${green}YubiKey enabled${n}"
+                else
+                    echo "  ${yellow}YubiKey not configured${n} (password only)"
+                fi
+            else
+                echo "  Not applicable (file not found)"
+            fi
+            echo ""
+
+            # YubiKey detection
+            echo "${cyan}Connected YubiKey:${n}"
+            if command -v ykman &> /dev/null; then
+                ykman info 2>/dev/null | head -5 | sed 's/^/  /' || echo "  No YubiKey detected"
+            else
+                if lsusb | grep -qi yubi; then
+                    lsusb | grep -i yubi | sed 's/^/  /'
+                else
+                    echo "  No YubiKey detected"
+                fi
+            fi
+            ;;
+
+        "Remove configuration"|"remove")
+            # Remove configuration
+            echo ""
+            echo "${yellow}${b}Warning:${n} This will remove YubiKey PAM authentication."
+            echo "You will need to use password for sudo/polkit."
+            echo ""
+
+            read -p "Remove YubiKey PAM configuration? [y/N]: " remove_confirm
+            if [[ ! "$remove_confirm" =~ ^[Yy]$ ]]; then
+                exit 0
+            fi
+
+            # Remove u2f_keys
+            if [[ -f "$U2F_KEYS" ]]; then
+                rm -f "$U2F_KEYS"
+                echo "${green}${b}✓${n} Removed $U2F_KEYS"
+            fi
+
+            # Remove from authselect
+            CURRENT=$(authselect current 2>/dev/null || echo "")
+            if echo "$CURRENT" | grep -q "with-pam-u2f"; then
+                echo "Removing with-pam-u2f from authselect..."
+                sudo authselect select sssd --force
+                echo "${green}${b}✓${n} authselect reset to sssd (no pam-u2f)"
+            fi
+
+            # Remove from gdm-fingerprint
+            if [[ -f /etc/pam.d/gdm-fingerprint ]] && grep -q "pam_u2f.so" /etc/pam.d/gdm-fingerprint; then
+                sudo sed -i '/pam_u2f.so/d' /etc/pam.d/gdm-fingerprint
+                echo "${green}${b}✓${n} Removed pam_u2f from gdm-fingerprint"
+            fi
+
+            echo ""
+            echo "${green}${b}Configuration removed${n}"
+            echo "Password authentication is now required for sudo/polkit."
+            ;;
+
+        *)
+            echo "Unknown action: $ACTION"
+            echo "Valid actions: setup, register, show, remove"
+            exit 1
+            ;;
+    esac
