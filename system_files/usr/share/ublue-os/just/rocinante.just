@@ -6,13 +6,9 @@
 setup-yubikey-ssh:
     #!/usr/bin/env bash
     set -euo pipefail
-    # Source ujust library if available, otherwise define fallbacks
-    if [[ -f /usr/lib/ujust/ujust.sh ]]; then
-        source /usr/lib/ujust/ujust.sh
-    else
-        b=$(tput bold 2>/dev/null) || b=""
-        n=$(tput sgr0 2>/dev/null) || n=""
-    fi
+    # Terminal formatting
+    b=$(tput bold 2>/dev/null) || b=""
+    n=$(tput sgr0 2>/dev/null) || n=""
 
     echo "${b}Setting up YubiKey for SSH/git signing (FIDO2)...${n}"
     echo ""
@@ -103,13 +99,9 @@ setup-yubikey-ssh:
 [group('Rocinante')]
 enable-yubikey-gpg:
     #!/usr/bin/env bash
-    # Source ujust library if available, otherwise define fallbacks
-    if [[ -f /usr/lib/ujust/ujust.sh ]]; then
-        source /usr/lib/ujust/ujust.sh
-    else
-        b=$(tput bold 2>/dev/null) || b=""
-        n=$(tput sgr0 2>/dev/null) || n=""
-    fi
+    # Terminal formatting
+    b=$(tput bold 2>/dev/null) || b=""
+    n=$(tput sgr0 2>/dev/null) || n=""
 
     echo "${b}Enabling GPG/YubiKey for this shell session...${n}"
     echo ""
@@ -149,13 +141,9 @@ enable-yubikey-gpg:
 toggle-suspend:
     #!/usr/bin/env bash
     set -euo pipefail
-    # Source ujust library if available, otherwise define fallbacks
-    if [[ -f /usr/lib/ujust/ujust.sh ]]; then
-        source /usr/lib/ujust/ujust.sh
-    else
-        b=$(tput bold 2>/dev/null) || b=""
-        n=$(tput sgr0 2>/dev/null) || n=""
-    fi
+    # Terminal formatting
+    b=$(tput bold 2>/dev/null) || b=""
+    n=$(tput sgr0 2>/dev/null) || n=""
 
     LOGIND_CONFIG="/etc/systemd/logind.conf.d/no-suspend.conf"
     GDM_CONFIG="/etc/dconf/db/gdm.d/99-no-suspend"
@@ -201,13 +189,9 @@ toggle-suspend:
 setup-1password-browser:
     #!/usr/bin/env bash
     set -euo pipefail
-    # Source ujust library if available, otherwise define fallbacks
-    if [[ -f /usr/lib/ujust/ujust.sh ]]; then
-        source /usr/lib/ujust/ujust.sh
-    else
-        b=$(tput bold 2>/dev/null) || b=""
-        n=$(tput sgr0 2>/dev/null) || n=""
-    fi
+    # Terminal formatting
+    b=$(tput bold 2>/dev/null) || b=""
+    n=$(tput sgr0 2>/dev/null) || n=""
 
     echo "${b}Setting up 1Password Flatpak browser integration...${n}"
 
@@ -253,13 +237,9 @@ setup-1password-browser:
 first-run:
     #!/usr/bin/env bash
     set -euo pipefail
-    # Source ujust library if available, otherwise define fallbacks
-    if [[ -f /usr/lib/ujust/ujust.sh ]]; then
-        source /usr/lib/ujust/ujust.sh
-    else
-        b=$(tput bold 2>/dev/null) || b=""
-        n=$(tput sgr0 2>/dev/null) || n=""
-    fi
+    # Terminal formatting
+    b=$(tput bold 2>/dev/null) || b=""
+    n=$(tput sgr0 2>/dev/null) || n=""
 
     echo "${b}╔══════════════════════════════════════╗${n}"
     echo "${b}║     Rocinante First-Run Setup        ║${n}"
@@ -293,13 +273,9 @@ first-run:
 toggle-openvpn-indicator:
     #!/usr/bin/env bash
     set -euo pipefail
-    # Source ujust library if available, otherwise define fallbacks
-    if [[ -f /usr/lib/ujust/ujust.sh ]]; then
-        source /usr/lib/ujust/ujust.sh
-    else
-        b=$(tput bold 2>/dev/null) || b=""
-        n=$(tput sgr0 2>/dev/null) || n=""
-    fi
+    # Terminal formatting
+    b=$(tput bold 2>/dev/null) || b=""
+    n=$(tput sgr0 2>/dev/null) || n=""
 
     AUTOSTART_SRC="/etc/xdg/autostart/openvpn3-indicator.desktop"
     AUTOSTART_USER="$HOME/.config/autostart/openvpn3-indicator.desktop"
@@ -361,17 +337,13 @@ toggle-openvpn-indicator:
 configure-yubikey-pam ACTION="":
     #!/usr/bin/env bash
     set -euo pipefail
-    # Source ujust library if available, otherwise define fallbacks
-    if [[ -f /usr/lib/ujust/ujust.sh ]]; then
-        source /usr/lib/ujust/ujust.sh
-    else
-        b=$(tput bold 2>/dev/null) || b=""
-        n=$(tput sgr0 2>/dev/null) || n=""
-        red=$(tput setaf 1 2>/dev/null) || red=""
-        green=$(tput setaf 2 2>/dev/null) || green=""
-        yellow=$(tput setaf 3 2>/dev/null) || yellow=""
-        cyan=$(tput setaf 6 2>/dev/null) || cyan=""
-    fi
+    # Terminal formatting
+    b=$(tput bold 2>/dev/null) || b=""
+    n=$(tput sgr0 2>/dev/null) || n=""
+    red=$(tput setaf 1 2>/dev/null) || red=""
+    green=$(tput setaf 2 2>/dev/null) || green=""
+    yellow=$(tput setaf 3 2>/dev/null) || yellow=""
+    cyan=$(tput setaf 6 2>/dev/null) || cyan=""
 
     U2F_KEYS="$HOME/.config/Yubico/u2f_keys"
     HOSTNAME=$(hostname)
