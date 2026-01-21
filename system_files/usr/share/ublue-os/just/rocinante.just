@@ -192,8 +192,10 @@ setup-1password-browser:
     # Terminal formatting
     b=$(tput bold 2>/dev/null) || b=""
     n=$(tput sgr0 2>/dev/null) || n=""
+    yellow=$(tput setaf 3 2>/dev/null) || yellow=""
 
     echo "${b}Setting up 1Password Flatpak browser integration...${n}"
+    echo ""
 
     # Detect installed Flatpak browsers
     BROWSERS=()
@@ -210,11 +212,38 @@ setup-1password-browser:
         exit 0
     fi
 
+    # Check if Firefox has been run at least once
+    FIREFOX_NEEDS_INIT=false
+    if [[ " ${BROWSERS[@]} " =~ " org.mozilla.firefox " ]]; then
+        if [[ ! -d "$HOME/.var/app/org.mozilla.firefox/.mozilla" ]]; then
+            echo ""
+            echo "${yellow}${b}Firefox has not been initialized yet.${n}"
+            read -p "Initialize Firefox profile now? [Y/n]: " init_confirm
+            if [[ ! "$init_confirm" =~ ^[Nn]$ ]]; then
+                echo "Initializing Firefox profile (this takes a few seconds)..."
+                timeout 10 flatpak run org.mozilla.firefox --headless 2>/dev/null || true
+                sleep 2
+                if [[ -d "$HOME/.var/app/org.mozilla.firefox/.mozilla" ]]; then
+                    echo "Firefox profile initialized successfully"
+                    FIREFOX_NEEDS_INIT=true
+                else
+                    echo "${yellow}Failed to initialize Firefox profile automatically.${n}"
+                    echo "Please run Firefox manually first: ${b}flatpak run org.mozilla.firefox${n}"
+                    exit 1
+                fi
+            else
+                echo "Please initialize Firefox manually first: ${b}flatpak run org.mozilla.firefox${n}"
+                exit 0
+            fi
+        fi
+    fi
+
     # Clone and run integration script
     TEMP_DIR=$(mktemp -d)
     trap "rm -rf $TEMP_DIR" EXIT
     cd "$TEMP_DIR"
 
+    echo ""
     echo "Downloading integration script..."
     if git clone --depth 1 --quiet --branch fix-xdg-firefox-path https://github.com/allardvdb/1password-flatpak-browser-integration; then
         cd 1password-flatpak-browser-integration
@@ -223,10 +252,62 @@ setup-1password-browser:
             echo "Configuring ${b}$browser${n}..."
             echo "$browser" | ./1password-flatpak-browser-integration.sh
         done
+
+        # Fix Firefox Flatpak native-messaging-hosts path
+        # Firefox Flatpak looks in ~/.mozilla/native-messaging-hosts, not config/mozilla/native-messaging-hosts
+        if [[ " ${BROWSERS[@]} " =~ " org.mozilla.firefox " ]]; then
+            FIREFOX_MOZILLA_PATH="$HOME/.var/app/org.mozilla.firefox/.mozilla/native-messaging-hosts"
+            FIREFOX_CONFIG_PATH="$HOME/.var/app/org.mozilla.firefox/config/mozilla/native-messaging-hosts"
+            if [[ -f "$FIREFOX_CONFIG_PATH/com.1password.1password.json" ]]; then
+                echo ""
+                echo "Moving Firefox native-messaging config to correct location..."
+                mkdir -p "$FIREFOX_MOZILLA_PATH"
+                cp "$FIREFOX_CONFIG_PATH/com.1password.1password.json" "$FIREFOX_MOZILLA_PATH/"
+                echo "Fixed Firefox Flatpak path"
+            fi
+        fi
+
         echo ""
-        echo "${b}Done!${n}"
-        echo "Restart your browser(s) to complete setup."
-        echo "Then verify in 1Password: Settings → Browser → check extension is connected."
+        echo "${b}Setup complete!${n}"
+        echo ""
+
+        # Offer to open Firefox to install extension
+        if [[ " ${BROWSERS[@]} " =~ " org.mozilla.firefox " ]]; then
+            echo "${b}Next step: Install the 1Password browser extension${n}"
+            echo ""
+            read -p "Open Firefox to install the 1Password extension now? [Y/n]: " open_confirm
+            if [[ ! "$open_confirm" =~ ^[Nn]$ ]]; then
+                echo "Opening Firefox to 1Password extension page..."
+                flatpak run org.mozilla.firefox "https://addons.mozilla.org/firefox/addon/1password-x-password-manager/" &
+                sleep 2
+                echo ""
+                echo "${b}In Firefox:${n}"
+                echo "  1. Click 'Add to Firefox' and confirm the installation"
+                echo "  2. Click the 1Password extension icon in the toolbar"
+                echo "  3. Go to Settings (⚙️) → General"
+                echo "  4. Enable 'Integrate this extension with the 1Password desktop app'"
+                echo "  5. Verify: Integration status should show 'Connected' ✓"
+            else
+                echo ""
+                echo "${b}Manual installation:${n}"
+                echo "  1. Open Firefox and go to:"
+                echo "     https://addons.mozilla.org/firefox/addon/1password-x-password-manager/"
+                echo ""
+                echo "  2. Click 'Add to Firefox' and confirm"
+                echo ""
+                echo "  3. Open 1Password extension settings and enable desktop app integration"
+                echo ""
+                echo "  4. Verify: Settings → Browser → Integration status should show 'Connected'"
+            fi
+        else
+            echo "${b}Next steps:${n}"
+            echo "  1. Install the 1Password browser extension:"
+            echo "     Chrome: https://chrome.google.com/webstore/detail/1password/aeblfdkhhhdcdjpifhhbdiojplfjncoa"
+            echo ""
+            echo "  2. Open 1Password extension settings and enable desktop app integration"
+            echo ""
+            echo "  3. Verify: Settings → Browser → Integration status should show 'Connected'"
+        fi
     else
         echo "Failed to download integration script"
         exit 1
