@@ -312,6 +312,114 @@ setup-1password-browser:
         exit 1
     fi
 
+# Configure IOMMU and Incus for GPU passthrough
+[group('Rocinante')]
+setup-gpu-passthrough:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Terminal formatting
+    b=$(tput bold 2>/dev/null) || b=""
+    n=$(tput sgr0 2>/dev/null) || n=""
+    green=$(tput setaf 2 2>/dev/null) || green=""
+    yellow=$(tput setaf 3 2>/dev/null) || yellow=""
+    red=$(tput setaf 1 2>/dev/null) || red=""
+
+    echo "${b}GPU Passthrough Setup (IOMMU + Incus)${n}"
+    echo ""
+
+    # Step 1: Detect CPU vendor and determine IOMMU parameter
+    VENDOR=$(grep -m1 vendor_id /proc/cpuinfo | awk '{print $3}')
+    case "$VENDOR" in
+        AuthenticAMD)
+            IOMMU_PARAM="amd_iommu=on"
+            echo "Detected AMD CPU — will use ${b}${IOMMU_PARAM}${n}"
+            ;;
+        GenuineIntel)
+            IOMMU_PARAM="intel_iommu=on"
+            echo "Detected Intel CPU — will use ${b}${IOMMU_PARAM}${n}"
+            ;;
+        *)
+            echo "${red}${b}Error:${n} Unknown CPU vendor: $VENDOR"
+            exit 1
+            ;;
+    esac
+    echo ""
+
+    # Step 2: Check current kernel args
+    CURRENT_KARGS=$(rpm-ostree kargs 2>/dev/null || echo "")
+    NEEDS_REBOOT=false
+
+    if echo "$CURRENT_KARGS" | grep -q "$IOMMU_PARAM"; then
+        echo "${green}${b}✓${n} ${IOMMU_PARAM} already set in kernel parameters"
+    else
+        echo "Adding ${b}${IOMMU_PARAM}${n} to kernel boot parameters..."
+        sudo rpm-ostree kargs --append-if-missing="$IOMMU_PARAM"
+        NEEDS_REBOOT=true
+        echo "${green}${b}✓${n} Added ${IOMMU_PARAM}"
+    fi
+
+    if echo "$CURRENT_KARGS" | grep -q "iommu=pt"; then
+        echo "${green}${b}✓${n} iommu=pt already set in kernel parameters"
+    else
+        echo "Adding ${b}iommu=pt${n} to kernel boot parameters..."
+        sudo rpm-ostree kargs --append-if-missing="iommu=pt"
+        NEEDS_REBOOT=true
+        echo "${green}${b}✓${n} Added iommu=pt"
+    fi
+    echo ""
+
+    # Step 3: Add user to incus-admin group
+    CURRENT_USER=$(whoami)
+    if id -nG "$CURRENT_USER" | grep -qw incus-admin; then
+        echo "${green}${b}✓${n} $CURRENT_USER is already in the incus-admin group"
+    else
+        echo "Adding ${b}${CURRENT_USER}${n} to incus-admin group..."
+        sudo usermod -aG incus-admin "$CURRENT_USER"
+        NEEDS_REBOOT=true
+        echo "${green}${b}✓${n} Added $CURRENT_USER to incus-admin group"
+    fi
+
+    if id -nG "$CURRENT_USER" | grep -qw incus; then
+        echo "${green}${b}✓${n} $CURRENT_USER is already in the incus group"
+    else
+        echo "Adding ${b}${CURRENT_USER}${n} to incus group..."
+        sudo usermod -aG incus "$CURRENT_USER"
+        NEEDS_REBOOT=true
+        echo "${green}${b}✓${n} Added $CURRENT_USER to incus group"
+    fi
+    echo ""
+
+    # Step 4: Verify IOMMU status (if already enabled)
+    if [[ -d /sys/kernel/iommu_groups ]] && [[ $(find /sys/kernel/iommu_groups -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l) -gt 0 ]]; then
+        IOMMU_GROUPS=$(find /sys/kernel/iommu_groups -maxdepth 1 -mindepth 1 -type d | wc -l)
+        echo "${green}${b}✓${n} IOMMU is active with $IOMMU_GROUPS groups"
+    else
+        if [[ "$NEEDS_REBOOT" == true ]]; then
+            echo "${yellow}IOMMU groups will be available after reboot${n}"
+        else
+            echo "${yellow}${b}Warning:${n} No IOMMU groups found. Check BIOS/UEFI settings:"
+            echo "  - AMD: Enable IOMMU / SVM"
+            echo "  - Intel: Enable VT-d"
+        fi
+    fi
+    echo ""
+
+    # Step 5: Summary and reboot prompt
+    echo "${b}Setup complete!${n}"
+    echo ""
+    if [[ "$NEEDS_REBOOT" == true ]]; then
+        echo "${yellow}A reboot is required for changes to take effect.${n}"
+        echo ""
+        read -p "Reboot now? [y/N]: " reboot_confirm
+        if [[ "$reboot_confirm" =~ ^[Yy]$ ]]; then
+            systemctl reboot
+        else
+            echo "Please reboot when convenient: ${b}systemctl reboot${n}"
+        fi
+    else
+        echo "No changes needed — everything is already configured."
+    fi
+
 # Run first-time user setup tasks
 [group('Rocinante')]
 first-run:
@@ -342,6 +450,7 @@ first-run:
     echo ""
     echo "${b}[2/2] Additional Setup${n}"
     echo "Other setup tasks you may want to run:"
+    echo "  - ujust setup-gpu-passthrough   # If using Incus VMs with GPU passthrough"
     echo "  - ujust setup-yubikey-ssh       # If using YubiKey for SSH"
     echo "  - ujust toggle-suspend          # If using for remote access"
     echo ""

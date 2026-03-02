@@ -34,6 +34,8 @@ echo "::endgroup::"
 
 # Run additional build scripts
 /ctx/build/20-1password.sh
+/ctx/build/30-incus.sh
+/ctx/build/40-rocm.sh
 
 shopt -u nullglob
 echo "Build complete!"
