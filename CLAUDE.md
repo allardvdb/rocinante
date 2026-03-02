@@ -17,36 +17,64 @@ This is a custom Universal Blue / Bluefin Linux image that creates a personalize
 
 **Name**: rocinante (named after the Martian gunship from The Expanse)
 
+**Template**: Built following the [finpilot](https://github.com/projectbluefin/finpilot) pattern — the upstream-recommended way to build custom Bluefin images.
+
 ## Project Structure
 
 ```
 .
 ├── .github/
+│   ├── renovate.json5         # Renovate config (OCI digest pinning, GH Actions SHA updates)
 │   └── workflows/
-│       └── build.yml          # GitHub Actions workflow for building/pushing image
-├── build_files/               # Build scripts executed during image creation
-│   ├── 1password.sh           # 1Password installation with Flatpak browser integration
-│   ├── build.sh              # Main build orchestrator
-│   ├── fonts.sh              # Custom font installation
-│   ├── github-cli.sh         # GitHub CLI installation
-│   ├── homebrew.sh           # Homebrew package manager setup
-│   ├── justfile.sh           # Just task runner configuration
-│   ├── openvpn.sh           # OpenVPN client installation
-│   ├── packages.sh          # System package installation
-│   └── ublue-update.sh      # Universal Blue update configuration
-├── docs/                     # Documentation
-│   ├── 1password-flatpak-fix.md     # Solution for 1Password + Firefox Flatpak
-│   └── yubikey-1password-authentication.md  # YubiKey + fingerprint hybrid auth
-├── Containerfile            # Container build definition
-└── README.md               # Project documentation
+│       ├── build.yml          # Main build workflow (build + push to GHCR)
+│       ├── build-disk.yml     # Disk image builds (ISO, QCOW2)
+│       ├── clean.yml          # Weekly cleanup of old GHCR images
+│       ├── validate-brewfiles.yml   # Brewfile validation on PRs
+│       ├── validate-justfiles.yml   # Justfile format check on PRs
+│       └── validate-shellcheck.yml  # Shellcheck on build/*.sh on PRs
+├── build/                     # Build scripts (numbered, run during image build)
+│   ├── 10-build.sh           # Main orchestrator (brew, packages, ujust, systemd)
+│   ├── 20-1password.sh       # 1Password desktop + CLI installation
+│   └── copr-helpers.sh       # COPR helper functions (sourced by build scripts)
+├── custom/                    # Custom files copied into the image at build time
+│   ├── brew/                  # Brewfiles for Homebrew packages
+│   │   └── default.Brewfile  # Default package list
+│   └── ujust/                 # Custom ujust recipes
+│       └── rocinante.just    # Rocinante-specific recipes (→ 60-custom.just)
+├── disk_config/               # Disk image configurations (ISO, QCOW2)
+├── docs/                      # Documentation
+├── Containerfile              # Container build definition (ctx-stage pattern)
+├── Justfile                   # Local development commands
+└── .pre-commit-config.yaml    # Pre-commit hooks (JSON/TOML/YAML, Brewfile)
 ```
+
+## Build Architecture (ctx-stage pattern)
+
+The Containerfile uses a two-stage build following the finpilot pattern:
+
+1. **`scratch` ctx stage**: Copies `build/`, `custom/`, and `@ublue-os/brew` OCI files into a staging area
+2. **Final stage**: Mounts the ctx stage read-only at `/ctx` and runs `build/10-build.sh`
+
+This means build scripts and custom files are never `COPY`'d into the final image — they're only available during the build via the `/ctx` mount.
+
+### How build scripts work
+- `build/10-build.sh` is the main orchestrator:
+  - Installs Homebrew via `rsync` from `/ctx/oci/brew/`
+  - Copies Brewfiles to `/usr/share/ublue-os/homebrew/`
+  - Concatenates `custom/ujust/*.just` into `/usr/share/ublue-os/just/60-custom.just`
+  - Installs dnf5 packages
+  - Configures systemd units
+  - Calls additional numbered scripts (e.g., `20-1password.sh`)
+
+### ujust recipes (60-custom.just)
+Bluefin's `00-entry.just` includes `import? "/usr/share/ublue-os/just/60-custom.just"`. The build script concatenates all `.just` files from `custom/ujust/` into this file, so recipes are automatically available via `ujust`.
 
 ## Base Image
 
-Built on top of: `ghcr.io/ublue-os/bluefin-dx:stable`
-- Bluefin DX provides a developer-focused desktop experience
-- Includes VS Code, Docker/Podman, and developer tools
+Built on top of: `ghcr.io/ublue-os/bluefin:stable`
+- Bluefin provides a desktop experience optimized for developers
 - Based on Fedora Silverblue (immutable/atomic desktop)
+- Developer tools are managed via Homebrew (@ublue-os/brew)
 
 ## Key Customizations
 
@@ -55,20 +83,18 @@ Built on top of: `ghcr.io/ublue-os/bluefin-dx:stable`
 - CLI tool (op) installed and configured
 - Flatpak browser integration via ujust recipe
 - SSH agent integration for Git operations
-- Located in: `build_files/1password.sh`
+- Located in: `build/20-1password.sh`
 
 **User Setup**: Run `ujust setup-1password-browser` after installation
 
-### Developer Tools
-- GitHub CLI (gh) for repository management
-- Homebrew for additional package management
-- Custom fonts for terminal/IDE
-- OpenVPN client (indicator disabled by default, enable with `ujust toggle-openvpn-indicator`)
-- Just task runner for automation
+### Homebrew (@ublue-os/brew)
+- Installed via OCI layer in ctx stage, deployed by `10-build.sh`
+- `brew-setup.service` runs on first boot to initialize Homebrew
+- `brew-update.timer` and `brew-upgrade.timer` keep packages current
+- Brewfiles in `custom/brew/` are copied to `/usr/share/ublue-os/homebrew/`
 
 ### System Configuration
-- Universal Blue update system configured
-- Custom package installations via rpm-ostree
+- Custom package installations via dnf5
 - Immutable system patterns (using /usr/libexec, not /usr/local)
 
 ## Build System
@@ -80,13 +106,18 @@ Built on top of: `ghcr.io/ublue-os/bluefin-dx:stable`
 - Signs images with Cosign
 - Tags: latest, latest.YYYYMMDD, YYYYMMDD
 
+### Validation Workflows (PRs only)
+- `validate-shellcheck.yml` — shellcheck on `build/*.sh`
+- `validate-justfiles.yml` — just fmt check on `custom/ujust/` and `Justfile`
+- `validate-brewfiles.yml` — Brewfile syntax validation
+
 ### Building Locally
 ```bash
 # Build the container image
-podman build -t rocinante:local .
+just build
 
-# Run for testing (not recommended for daily use)
-podman run -it --rm rocinante:local bash
+# Or directly with podman
+podman build -t rocinante:local .
 ```
 
 ## Development Patterns
@@ -98,19 +129,25 @@ podman run -it --rm rocinante:local bash
 - Use `/var/` for mutable state
 
 ### Adding New Features
-1. Create a new script in `build_files/`
-2. Add execution in `build_files/build.sh`
-3. Test locally with podman build
+1. Create a new numbered script in `build/` (e.g., `30-feature.sh`)
+2. Call it from `build/10-build.sh`
+3. Test locally with `just build`
 4. Push to trigger GitHub Actions build
 
+### Adding Homebrew Packages
+Add packages to `custom/brew/default.Brewfile` or create a new `.Brewfile`.
+
+### Adding ujust Recipes
+Add recipes to `custom/ujust/rocinante.just` or create a new `.just` file in `custom/ujust/`. They will be concatenated into `60-custom.just` at build time.
+
 ### ujust Recipes
-User-level configuration via ujust (located in `system_files/usr/share/ublue-os/just/rocinante.just`):
+User-level configuration via ujust (defined in `custom/ujust/rocinante.just`):
 - `ujust first-run` - Run all first-time setup tasks
 - `ujust setup-1password-browser` - Configure 1Password for Flatpak browsers
 - `ujust setup-yubikey-ssh` - Configure YubiKey for SSH/git signing (FIDO2)
 - `ujust enable-yubikey-gpg` - Prepare shell for GPG operations with YubiKey 5
-- `ujust toggle-openvpn-indicator` - Enable/disable OpenVPN tray indicator
 - `ujust toggle-suspend` - Toggle system suspend for remote access
+- `ujust configure-yubikey-pam` - Configure YubiKey for PAM authentication
 
 ## Common Tasks
 
@@ -152,17 +189,11 @@ Images are published to GitHub Container Registry:
 - Historical tags available (daily builds)
 - Signed with Cosign for verification
 
-## Future Improvements
-
-- Automated Flatpak app installation
-- Homebrew package lists
-- Dotfiles management
-
 ## Troubleshooting
 
 ### Build Failures
 - Check `/usr/local` vs `/usr/libexec` paths
-- Verify package names in rpm-ostree commands
+- Verify package names in dnf5 commands
 - Ensure proper directory creation before file writes
 
 ### 1Password Browser Integration
@@ -174,5 +205,6 @@ Images are published to GitHub Container Registry:
 
 - [Universal Blue Documentation](https://universal-blue.org/)
 - [Bluefin Project](https://github.com/ublue-os/bluefin)
+- [finpilot Template](https://github.com/projectbluefin/finpilot)
 - [Just Task Runner](https://github.com/casey/just)
 - [1Password Linux](https://support.1password.com/install-linux/)
