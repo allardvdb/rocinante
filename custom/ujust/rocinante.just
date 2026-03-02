@@ -420,6 +420,72 @@ setup-gpu-passthrough:
         echo "No changes needed — everything is already configured."
     fi
 
+# Install optional CLI developer tool bundles
+[group('Rocinante')]
+install-dev-tools:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Terminal formatting
+    b=$(tput bold 2>/dev/null) || b=""
+    n=$(tput sgr0 2>/dev/null) || n=""
+    green=$(tput setaf 2 2>/dev/null) || green=""
+
+    echo "${b}Install Developer Tool Bundles${n}"
+    echo ""
+    echo "Select tool bundles to install via Homebrew."
+    echo "Use arrow keys and space to select, enter to confirm."
+    echo ""
+
+    SELECTED=()
+    if command -v gum &>/dev/null; then
+        # Interactive multi-select with gum
+        CHOICES=$(gum choose --no-limit \
+            "Dev productivity (lazygit, neovim, httpie)" \
+            "GPU monitoring (nvtop)" \
+            "Kubernetes (kubectl, helm, k9s)") || true
+        while IFS= read -r line; do
+            [[ -n "$line" ]] && SELECTED+=("$line")
+        done <<< "$CHOICES"
+    else
+        # Fallback numbered menu
+        echo "Available bundles:"
+        echo "  1) Dev productivity (lazygit, neovim, httpie)"
+        echo "  2) GPU monitoring (nvtop)"
+        echo "  3) Kubernetes (kubectl, helm, k9s)"
+        echo ""
+        read -p "Enter bundle numbers (e.g. 1 3): " -a nums
+        for num in "${nums[@]}"; do
+            case "$num" in
+                1) SELECTED+=("Dev productivity (lazygit, neovim, httpie)") ;;
+                2) SELECTED+=("GPU monitoring (nvtop)") ;;
+                3) SELECTED+=("Kubernetes (kubectl, helm, k9s)") ;;
+                *) echo "Skipping unknown option: $num" ;;
+            esac
+        done
+    fi
+
+    if [[ ${#SELECTED[@]} -eq 0 ]]; then
+        echo "No bundles selected."
+        exit 0
+    fi
+
+    PACKAGES=()
+    for bundle in "${SELECTED[@]}"; do
+        case "$bundle" in
+            *"Dev productivity"*)  PACKAGES+=(lazygit neovim httpie) ;;
+            *"GPU monitoring"*)    PACKAGES+=(nvtop) ;;
+            *"Kubernetes"*)        PACKAGES+=(kubectl helm k9s) ;;
+        esac
+    done
+
+    echo ""
+    echo "Installing: ${PACKAGES[*]}"
+    echo ""
+    brew install "${PACKAGES[@]}"
+
+    echo ""
+    echo "${green}${b}✓${n} Installed: ${PACKAGES[*]}"
+
 # Run first-time user setup tasks
 [group('Rocinante')]
 first-run:
@@ -450,6 +516,7 @@ first-run:
     echo ""
     echo "${b}[2/2] Additional Setup${n}"
     echo "Other setup tasks you may want to run:"
+    echo "  - ujust install-dev-tools        # Install optional CLI tool bundles"
     echo "  - ujust setup-gpu-passthrough   # If using Incus VMs with GPU passthrough"
     echo "  - ujust setup-yubikey-ssh       # If using YubiKey for SSH"
     echo "  - ujust toggle-suspend          # If using for remote access"
