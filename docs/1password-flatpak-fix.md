@@ -26,6 +26,9 @@ The integration script (FlyinPancake/1password-flatpak-browser-integration):
 2. Creates wrapper script at `~/.var/app/<browser>/data/bin/1password-wrapper.sh`
 3. Updates native messaging host config to use the wrapper
 
+For Firefox Flatpak specifically, the config is placed at:
+- `~/.var/app/org.mozilla.firefox/.mozilla/native-messaging-hosts/com.1password.1password.json`
+
 The rocinante image pre-configures:
 - `/etc/1password/custom_allowed_browsers` with `flatpak-session-helper`
 
