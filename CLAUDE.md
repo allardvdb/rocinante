@@ -13,7 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Overview
 
-This is a custom Universal Blue / Bluefin Linux image that creates a personalized developer workstation based on Fedora Silverblue/Kinoite. The image is built using GitHub Actions and published to GitHub Container Registry (ghcr.io).
+This is a custom Universal Blue / Bluefin Linux image that creates a personalized developer workstation based on Fedora Atomic Desktop (Silverblue for GNOME, Kinoite for KDE). The image is built using GitHub Actions and published to GitHub Container Registry (ghcr.io).
 
 **Name**: rocinante (named after the Martian gunship from The Expanse)
 
@@ -35,15 +35,17 @@ This is a custom Universal Blue / Bluefin Linux image that creates a personalize
 ├── build/                     # Build scripts (numbered, run during image build)
 │   ├── 10-build.sh           # Main orchestrator (brew, packages, ujust, systemd)
 │   ├── 20-1password.sh       # 1Password desktop + CLI installation
+│   ├── 30-incus.sh           # Incus VM manager + QEMU/SPICE/VFIO
+│   ├── 40-rocm.sh            # AMD ROCm compute stack
 │   └── copr-helpers.sh       # COPR helper functions (sourced by build scripts)
 ├── custom/                    # Custom files copied into the image at build time
 │   ├── brew/                  # Brewfiles for Homebrew packages
 │   │   └── default.Brewfile  # Default package list
 │   └── ujust/                 # Custom ujust recipes
 │       └── rocinante.just    # Rocinante-specific recipes (→ 60-custom.just)
-├── disk_config/               # Disk image configurations (ISO, QCOW2)
+├── disk_config/               # Disk image configurations (ISO, QCOW2, KDE/GNOME)
 ├── docs/                      # Documentation
-├── Containerfile              # Container build definition (ctx-stage pattern)
+├── Containerfile              # Container build definition (ctx-stage pattern, BASE_IMAGE arg)
 ├── Justfile                   # Local development commands
 └── .pre-commit-config.yaml    # Pre-commit hooks (JSON/TOML/YAML, Brewfile)
 ```
@@ -69,12 +71,14 @@ This means build scripts and custom files are never `COPY`'d into the final imag
 ### ujust recipes (60-custom.just)
 Bluefin's `00-entry.just` includes `import? "/usr/share/ublue-os/just/60-custom.just"`. The build script concatenates all `.just` files from `custom/ujust/` into this file, so recipes are automatically available via `ujust`.
 
-## Base Image
+## Base Images
 
-Built on top of: `ghcr.io/ublue-os/bluefin:stable`
-- Bluefin provides a desktop experience optimized for developers
-- Based on Fedora Silverblue (immutable/atomic desktop)
-- Developer tools are managed via Homebrew (@ublue-os/brew)
+Three variants are built from different base images:
+- **rocinante**: `ghcr.io/ublue-os/bluefin:stable` (GNOME)
+- **rocinante-nvidia**: `ghcr.io/ublue-os/bluefin-nvidia-open:stable` (GNOME + NVIDIA)
+- **rocinante-aurora**: `ghcr.io/ublue-os/aurora:stable` (KDE Plasma)
+
+All variants share the same build scripts and customizations. The Containerfile accepts a `BASE_IMAGE` build arg to select the variant. Developer tools are managed via Homebrew (@ublue-os/brew).
 
 ## Key Customizations
 
@@ -102,7 +106,8 @@ Built on top of: `ghcr.io/ublue-os/bluefin:stable`
 ### GitHub Actions Workflow
 - Triggers on: push to main, PRs, daily schedule (10:05 UTC)
 - Uses Buildah for container building
-- Publishes to: `ghcr.io/allardvdb/rocinante`
+- Builds a matrix of three variants: rocinante, rocinante-nvidia, rocinante-aurora
+- Publishes to: `ghcr.io/allardvdb/rocinante`, `ghcr.io/allardvdb/rocinante-nvidia`, `ghcr.io/allardvdb/rocinante-aurora`
 - Signs images with Cosign
 - Tags: latest, latest.YYYYMMDD, YYYYMMDD
 
@@ -146,8 +151,10 @@ User-level configuration via ujust (defined in `custom/ujust/rocinante.just`):
 - `ujust setup-1password-browser` - Configure 1Password for Flatpak browsers
 - `ujust setup-yubikey-ssh` - Configure YubiKey for SSH/git signing (FIDO2)
 - `ujust enable-yubikey-gpg` - Prepare shell for GPG operations with YubiKey 5
-- `ujust toggle-suspend` - Toggle system suspend for remote access
-- `ujust configure-yubikey-pam` - Configure YubiKey for PAM authentication
+- `ujust toggle-suspend` - Toggle system suspend for remote access (desktop-aware: GNOME/KDE)
+- `ujust configure-yubikey-pam` - Configure YubiKey for PAM authentication (desktop-aware: GDM/SDDM)
+- `ujust setup-gpu-passthrough` - Configure IOMMU and Incus for GPU passthrough
+- `ujust fix-amdgpu` - Apply AMD GPU workarounds for Framework laptops
 
 ## Common Tasks
 
@@ -185,7 +192,9 @@ ssh-add -l  # Should show your keys
 
 ### Container Registry
 Images are published to GitHub Container Registry:
-- Public access: `ghcr.io/allardvdb/rocinante:latest`
+- `ghcr.io/allardvdb/rocinante:latest` (GNOME)
+- `ghcr.io/allardvdb/rocinante-nvidia:latest` (GNOME + NVIDIA)
+- `ghcr.io/allardvdb/rocinante-aurora:latest` (KDE Plasma)
 - Historical tags available (daily builds)
 - Signed with Cosign for verification
 
