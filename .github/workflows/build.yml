@@ -35,6 +35,8 @@ jobs:
             base_image: ghcr.io/ublue-os/bluefin:stable
           - image_name: rocinante-nvidia
             base_image: ghcr.io/ublue-os/bluefin-nvidia-open:stable
+          - image_name: rocinante-aurora
+            base_image: ghcr.io/ublue-os/aurora:stable
 
     permissions:
       contents: read
