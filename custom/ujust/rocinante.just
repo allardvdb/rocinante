@@ -144,6 +144,12 @@ toggle-suspend:
     b=$(tput bold 2>/dev/null) || b=""
     n=$(tput sgr0 2>/dev/null) || n=""
 
+    # Detect desktop environment
+    IS_GNOME=false
+    if [[ "${XDG_CURRENT_DESKTOP:-}" == *"GNOME"* ]]; then
+        IS_GNOME=true
+    fi
+
     LOGIND_CONFIG="/etc/systemd/logind.conf.d/no-suspend.conf"
     GDM_CONFIG="/etc/dconf/db/gdm.d/99-no-suspend"
 
@@ -152,8 +158,10 @@ toggle-suspend:
         echo ""
         echo "Removing configurations to re-enable suspend..."
         sudo rm -f "$LOGIND_CONFIG"
-        sudo rm -f "$GDM_CONFIG"
-        sudo dconf update
+        if [[ "$IS_GNOME" == true ]]; then
+            sudo rm -f "$GDM_CONFIG"
+            sudo dconf update
+        fi
         sudo systemctl restart systemd-logind
         echo ""
         echo "${b}Suspend is now ENABLED${n}"
@@ -169,18 +177,28 @@ toggle-suspend:
         echo "HandleLidSwitch=ignore" | sudo tee -a "$LOGIND_CONFIG" > /dev/null
         echo "HandleLidSwitchExternalPower=ignore" | sudo tee -a "$LOGIND_CONFIG" > /dev/null
 
-        echo "Configuring GDM to prevent suspend at login screen..."
-        sudo mkdir -p /etc/dconf/db/gdm.d
-        echo "# Prevent GDM from suspending while waiting for login" | sudo tee "$GDM_CONFIG" > /dev/null
-        echo "[org/gnome/settings-daemon/plugins/power]" | sudo tee -a "$GDM_CONFIG" > /dev/null
-        echo "sleep-inactive-ac-type='nothing'" | sudo tee -a "$GDM_CONFIG" > /dev/null
-        echo "sleep-inactive-battery-type='nothing'" | sudo tee -a "$GDM_CONFIG" > /dev/null
-        sudo dconf update
+        if [[ "$IS_GNOME" == true ]]; then
+            echo "Configuring GDM to prevent suspend at login screen..."
+            sudo mkdir -p /etc/dconf/db/gdm.d
+            echo "# Prevent GDM from suspending while waiting for login" | sudo tee "$GDM_CONFIG" > /dev/null
+            echo "[org/gnome/settings-daemon/plugins/power]" | sudo tee -a "$GDM_CONFIG" > /dev/null
+            echo "sleep-inactive-ac-type='nothing'" | sudo tee -a "$GDM_CONFIG" > /dev/null
+            echo "sleep-inactive-battery-type='nothing'" | sudo tee -a "$GDM_CONFIG" > /dev/null
+            sudo dconf update
+        else
+            echo ""
+            echo "${b}Note:${n} GDM login screen suspend config skipped (not GNOME)."
+            echo "To prevent SDDM from suspending, configure via:"
+            echo "  ${b}System Settings → Energy Saving${n}"
+        fi
 
         sudo systemctl restart systemd-logind
         echo ""
         echo "${b}Suspend is now DISABLED${n}"
-        echo "System will stay awake for remote access, even at the login screen."
+        echo "System will stay awake for remote access."
+        if [[ "$IS_GNOME" != true ]]; then
+            echo "${b}Note:${n} Login screen suspend must be configured separately in System Settings."
+        fi
     fi
 
 # Configure 1Password for Flatpak browsers (Firefox, Chrome, Brave, etc.)
@@ -420,71 +438,60 @@ setup-gpu-passthrough:
         echo "No changes needed — everything is already configured."
     fi
 
-# Install optional CLI developer tool bundles
+# Apply AMD GPU workarounds for Framework laptops (ring buffer crash fix)
 [group('Rocinante')]
-install-dev-tools:
+fix-amdgpu:
     #!/usr/bin/env bash
     set -euo pipefail
     # Terminal formatting
     b=$(tput bold 2>/dev/null) || b=""
     n=$(tput sgr0 2>/dev/null) || n=""
     green=$(tput setaf 2 2>/dev/null) || green=""
+    yellow=$(tput setaf 3 2>/dev/null) || yellow=""
 
-    echo "${b}Install Developer Tool Bundles${n}"
+    echo "${b}AMD GPU Workaround (Framework / Ryzen APU)${n}"
     echo ""
-    echo "Select tool bundles to install via Homebrew."
-    echo "Use arrow keys and space to select, enter to confirm."
+    echo "This adds kernel parameters to fix amdgpu ring buffer crashes:"
+    echo "  - amdgpu.dcdebugmask=0x10  (disable PSR / Panel Self-Refresh)"
+    echo "  - amdgpu.sg_display=0      (disable scatter/gather display)"
+    echo ""
+    echo "Reference: https://community.frame.work/t/solved-amdgpu-driver-crash-during-high-loads/59741"
     echo ""
 
-    SELECTED=()
-    if command -v gum &>/dev/null; then
-        # Interactive multi-select with gum
-        CHOICES=$(gum choose --no-limit \
-            "Dev productivity (lazygit, neovim, httpie)" \
-            "GPU monitoring (nvtop)" \
-            "Kubernetes (kubectl, helm, k9s)") || true
-        while IFS= read -r line; do
-            [[ -n "$line" ]] && SELECTED+=("$line")
-        done <<< "$CHOICES"
+    CURRENT_KARGS=$(rpm-ostree kargs 2>/dev/null || echo "")
+    NEEDS_REBOOT=false
+
+    if echo "$CURRENT_KARGS" | grep -q "amdgpu.dcdebugmask=0x10"; then
+        echo "${green}${b}✓${n} amdgpu.dcdebugmask=0x10 already set"
     else
-        # Fallback numbered menu
-        echo "Available bundles:"
-        echo "  1) Dev productivity (lazygit, neovim, httpie)"
-        echo "  2) GPU monitoring (nvtop)"
-        echo "  3) Kubernetes (kubectl, helm, k9s)"
+        echo "Adding ${b}amdgpu.dcdebugmask=0x10${n}..."
+        sudo rpm-ostree kargs --append-if-missing="amdgpu.dcdebugmask=0x10"
+        NEEDS_REBOOT=true
+        echo "${green}${b}✓${n} Added amdgpu.dcdebugmask=0x10"
+    fi
+
+    if echo "$CURRENT_KARGS" | grep -q "amdgpu.sg_display=0"; then
+        echo "${green}${b}✓${n} amdgpu.sg_display=0 already set"
+    else
+        echo "Adding ${b}amdgpu.sg_display=0${n}..."
+        sudo rpm-ostree kargs --append-if-missing="amdgpu.sg_display=0"
+        NEEDS_REBOOT=true
+        echo "${green}${b}✓${n} Added amdgpu.sg_display=0"
+    fi
+    echo ""
+
+    if [[ "$NEEDS_REBOOT" == true ]]; then
+        echo "${yellow}A reboot is required for changes to take effect.${n}"
         echo ""
-        read -p "Enter bundle numbers (e.g. 1 3): " -a nums
-        for num in "${nums[@]}"; do
-            case "$num" in
-                1) SELECTED+=("Dev productivity (lazygit, neovim, httpie)") ;;
-                2) SELECTED+=("GPU monitoring (nvtop)") ;;
-                3) SELECTED+=("Kubernetes (kubectl, helm, k9s)") ;;
-                *) echo "Skipping unknown option: $num" ;;
-            esac
-        done
+        read -p "Reboot now? [y/N]: " reboot_confirm
+        if [[ "$reboot_confirm" =~ ^[Yy]$ ]]; then
+            systemctl reboot
+        else
+            echo "Please reboot when convenient: ${b}systemctl reboot${n}"
+        fi
+    else
+        echo "No changes needed — workarounds already applied."
     fi
-
-    if [[ ${#SELECTED[@]} -eq 0 ]]; then
-        echo "No bundles selected."
-        exit 0
-    fi
-
-    PACKAGES=()
-    for bundle in "${SELECTED[@]}"; do
-        case "$bundle" in
-            *"Dev productivity"*)  PACKAGES+=(lazygit neovim httpie) ;;
-            *"GPU monitoring"*)    PACKAGES+=(nvtop) ;;
-            *"Kubernetes"*)        PACKAGES+=(kubectl helm k9s) ;;
-        esac
-    done
-
-    echo ""
-    echo "Installing: ${PACKAGES[*]}"
-    echo ""
-    brew install "${PACKAGES[@]}"
-
-    echo ""
-    echo "${green}${b}✓${n} Installed: ${PACKAGES[*]}"
 
 # Run first-time user setup tasks
 [group('Rocinante')]
@@ -516,7 +523,7 @@ first-run:
     echo ""
     echo "${b}[2/2] Additional Setup${n}"
     echo "Other setup tasks you may want to run:"
-    echo "  - ujust install-dev-tools        # Install optional CLI tool bundles"
+    echo "  - ujust bbrew                    # Install optional tool bundles (k8s, IDE, etc.)"
     echo "  - ujust setup-gpu-passthrough   # If using Incus VMs with GPU passthrough"
     echo "  - ujust setup-yubikey-ssh       # If using YubiKey for SSH"
     echo "  - ujust toggle-suspend          # If using for remote access"
@@ -667,14 +674,16 @@ configure-yubikey-pam ACTION="":
             echo ""
             echo "${cyan}Step 3: Screen unlock configuration (optional)${n}"
             echo ""
-            echo "By default, GDM boot login uses password (to unlock keyring)."
-            echo "Screen unlock can use YubiKey via gdm-fingerprint."
-            echo ""
 
-            read -p "Configure YubiKey for screen unlock? [y/N]: " unlock_confirm
-            if [[ "$unlock_confirm" =~ ^[Yy]$ ]]; then
-                GDM_FP="/etc/pam.d/gdm-fingerprint"
-                if [[ -f "$GDM_FP" ]]; then
+            if [[ -f /etc/pam.d/gdm-fingerprint ]]; then
+                # GNOME/GDM: configure gdm-fingerprint for screen unlock
+                echo "By default, GDM boot login uses password (to unlock keyring)."
+                echo "Screen unlock can use YubiKey via gdm-fingerprint."
+                echo ""
+
+                read -p "Configure YubiKey for screen unlock? [y/N]: " unlock_confirm
+                if [[ "$unlock_confirm" =~ ^[Yy]$ ]]; then
+                    GDM_FP="/etc/pam.d/gdm-fingerprint"
                     if grep -q "pam_u2f.so" "$GDM_FP"; then
                         echo "${green}${b}✓${n} Already configured in gdm-fingerprint"
                     else
@@ -682,9 +691,17 @@ configure-yubikey-pam ACTION="":
                         sudo sed -i '1a auth     sufficient pam_u2f.so cue' "$GDM_FP"
                         echo "${green}${b}✓${n} gdm-fingerprint configured"
                     fi
-                else
-                    echo "${yellow}${b}Warning:${n} gdm-fingerprint not found (may not be applicable)"
                 fi
+            elif [[ -f /etc/pam.d/sddm ]]; then
+                # KDE/SDDM: inform user about different PAM configuration
+                echo "${yellow}${b}Note:${n} Screen unlock with YubiKey on SDDM (KDE) requires"
+                echo "different PAM configuration than GNOME/GDM."
+                echo ""
+                echo "Steps 1-2 (sudo and polkit) work regardless of desktop environment."
+                echo "SDDM screen unlock with pam_u2f is not configured automatically."
+            else
+                echo "${yellow}${b}Warning:${n} No supported display manager PAM file found."
+                echo "Screen unlock configuration skipped."
             fi
 
             # Verification
@@ -764,16 +781,24 @@ configure-yubikey-pam ACTION="":
             fi
             echo ""
 
-            # gdm-fingerprint status
-            echo "${cyan}gdm-fingerprint (screen unlock):${n}"
+            # Screen unlock status (desktop-aware)
+            echo "${cyan}Screen unlock:${n}"
             if [[ -f /etc/pam.d/gdm-fingerprint ]]; then
+                echo "  Display manager: GDM (GNOME)"
                 if grep -q "pam_u2f.so" /etc/pam.d/gdm-fingerprint; then
-                    echo "  ${green}YubiKey enabled${n}"
+                    echo "  ${green}YubiKey enabled via gdm-fingerprint${n}"
+                else
+                    echo "  ${yellow}YubiKey not configured${n} (password only)"
+                fi
+            elif [[ -f /etc/pam.d/sddm ]]; then
+                echo "  Display manager: SDDM (KDE)"
+                if grep -q "pam_u2f.so" /etc/pam.d/sddm; then
+                    echo "  ${green}YubiKey enabled via sddm${n}"
                 else
                     echo "  ${yellow}YubiKey not configured${n} (password only)"
                 fi
             else
-                echo "  Not applicable (file not found)"
+                echo "  Not applicable (no supported display manager found)"
             fi
             echo ""
 
@@ -816,10 +841,14 @@ configure-yubikey-pam ACTION="":
                 echo "${green}${b}✓${n} authselect reset to sssd (no pam-u2f)"
             fi
 
-            # Remove from gdm-fingerprint
+            # Remove from display manager PAM
             if [[ -f /etc/pam.d/gdm-fingerprint ]] && grep -q "pam_u2f.so" /etc/pam.d/gdm-fingerprint; then
                 sudo sed -i '/pam_u2f.so/d' /etc/pam.d/gdm-fingerprint
                 echo "${green}${b}✓${n} Removed pam_u2f from gdm-fingerprint"
+            fi
+            if [[ -f /etc/pam.d/sddm ]] && grep -q "pam_u2f.so" /etc/pam.d/sddm; then
+                sudo sed -i '/pam_u2f.so/d' /etc/pam.d/sddm
+                echo "${green}${b}✓${n} Removed pam_u2f from sddm"
             fi
 
             echo ""
