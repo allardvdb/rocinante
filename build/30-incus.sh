@@ -2,7 +2,14 @@
 set -eoux pipefail
 
 echo "::group:: Install Incus"
-dnf5 install -y incus incus-tools
+dnf5 install -y \
+    incus \
+    incus-tools \
+    qemu-system-x86-core \
+    qemu-device-display-virtio-gpu \
+    qemu-device-display-virtio-vga \
+    edk2-ovmf \
+    swtpm
 echo "::endgroup::"
 
 echo "::group:: Configure Incus Services"
