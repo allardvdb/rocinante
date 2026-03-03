@@ -11,6 +11,7 @@ dnf5 install -y \
     qemu-ui-spice-core \
     qemu-char-spice \
     qemu-audio-spice \
+    virt-viewer \
     edk2-ovmf \
     swtpm
 echo "::endgroup::"
