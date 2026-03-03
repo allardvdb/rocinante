@@ -8,6 +8,9 @@ dnf5 install -y \
     qemu-system-x86-core \
     qemu-device-display-virtio-gpu \
     qemu-device-display-virtio-vga \
+    qemu-ui-spice-core \
+    qemu-char-spice \
+    qemu-audio-spice \
     edk2-ovmf \
     swtpm
 echo "::endgroup::"
