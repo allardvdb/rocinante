@@ -524,6 +524,7 @@ first-run:
     echo "${b}[2/2] Additional Setup${n}"
     echo "Other setup tasks you may want to run:"
     echo "  - ujust bbrew                    # Install optional tool bundles (k8s, IDE, etc.)"
+    echo "  - ujust setup-borgmatic         # Set up borgmatic backups to BorgBase"
     echo "  - ujust setup-gpu-passthrough   # If using Incus VMs with GPU passthrough"
     echo "  - ujust setup-yubikey-ssh       # If using YubiKey for SSH"
     echo "  - ujust toggle-suspend          # If using for remote access"
@@ -862,3 +863,319 @@ configure-yubikey-pam ACTION="":
             exit 1
             ;;
     esac
+
+# Set up borgmatic backups to BorgBase (encrypted, automated, config-as-code)
+[group('Rocinante')]
+setup-borgmatic:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Terminal formatting
+    b=$(tput bold 2>/dev/null) || b=""
+    n=$(tput sgr0 2>/dev/null) || n=""
+    green=$(tput setaf 2 2>/dev/null) || green=""
+    yellow=$(tput setaf 3 2>/dev/null) || yellow=""
+    cyan=$(tput setaf 6 2>/dev/null) || cyan=""
+
+    echo "${b}Borgmatic Backup Setup${n}"
+    echo ""
+
+    CONFIG_DIR="$HOME/.config/borgmatic"
+    SYSTEMD_DIR="$HOME/.config/systemd/user"
+    SSH_KEY="$HOME/.ssh/borgbase-ri"
+    PASSPHRASE_FILE="$CONFIG_DIR/passphrase"
+    DUMP_DIR="$HOME/backup-exports/db-dumps"
+    PRE_BACKUP="$HOME/bin/borgmatic-pre-backup.sh"
+
+    # Step 1: Install borgmatic via brew
+    echo "${cyan}Step 1: Install borgmatic${n}"
+    if command -v borgmatic &>/dev/null; then
+        echo "${green}${b}✓${n} borgmatic already installed: $(borgmatic --version)"
+    else
+        echo "Installing borgmatic via brew..."
+        brew install borgmatic
+        echo "${green}${b}✓${n} borgmatic installed"
+    fi
+    if command -v borg &>/dev/null; then
+        echo "${green}${b}✓${n} borg already installed: $(borg --version)"
+    else
+        echo "Installing borgbackup via brew..."
+        brew install borgbackup
+        echo "${green}${b}✓${n} borgbackup installed"
+    fi
+    echo ""
+
+    # Step 2: Generate SSH key for BorgBase
+    echo "${cyan}Step 2: SSH key for BorgBase${n}"
+    if [[ -f "$SSH_KEY" ]]; then
+        echo "${green}${b}✓${n} SSH key already exists: $SSH_KEY"
+    else
+        ssh-keygen -t ed25519 -f "$SSH_KEY" -N "" -C "borgbase-ri"
+        echo "${green}${b}✓${n} SSH key generated: $SSH_KEY"
+    fi
+    echo ""
+    echo "Public key (add to BorgBase):"
+    echo "  $(cat "${SSH_KEY}.pub")"
+    echo ""
+
+    # Step 3: Create directory structure
+    echo "${cyan}Step 3: Create directories${n}"
+    mkdir -p "$CONFIG_DIR" "$SYSTEMD_DIR" "$DUMP_DIR" "$HOME/bin"
+    echo "${green}${b}✓${n} Created config directories"
+    echo ""
+
+    # Step 4: Generate passphrase
+    echo "${cyan}Step 4: Encryption passphrase${n}"
+    if [[ -f "$PASSPHRASE_FILE" ]]; then
+        echo "${green}${b}✓${n} Passphrase file already exists"
+    else
+        # Generate a strong random passphrase
+        python3 -c "import secrets; print(secrets.token_urlsafe(32))" > "$PASSPHRASE_FILE"
+        chmod 600 "$PASSPHRASE_FILE"
+        echo "${green}${b}✓${n} Passphrase generated at $PASSPHRASE_FILE (chmod 600)"
+        echo ""
+        echo "${yellow}${b}IMPORTANT: Store this passphrase in 1Password now!${n}"
+        echo "  Label: BorgBase ri — borg passphrase"
+        echo "  Value: $(cat "$PASSPHRASE_FILE")"
+    fi
+    echo ""
+
+    # Step 5: Create pre-backup database dump script
+    echo "${cyan}Step 5: Pre-backup database dump script${n}"
+    if [[ -f "$PRE_BACKUP" ]]; then
+        echo "${green}${b}✓${n} Pre-backup script already exists"
+    else
+        cat > "$PRE_BACKUP" << 'SCRIPT'
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # borgmatic pre-backup hook: dump databases from Incus containers
+    # Adjust container names and docker service names as needed
+
+    DUMP_DIR="$HOME/backup-exports/db-dumps"
+    TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+    mkdir -p "$DUMP_DIR"
+
+    echo "Dumping databases..."
+
+    # Immich — Postgres
+    echo "  Immich (postgres)..."
+    incus exec immich -- docker exec -i immich_postgres \
+        pg_dump -U postgres -d immich \
+        > "$DUMP_DIR/immich-postgres-${TIMESTAMP}.sql" 2>/dev/null || \
+        echo "  WARNING: Immich dump failed"
+
+    # Authentik — Postgres
+    echo "  Authentik (postgres)..."
+    incus exec authentik -- docker exec -i authentik-postgresql-1 \
+        pg_dump -U authentik -d authentik \
+        > "$DUMP_DIR/authentik-postgres-${TIMESTAMP}.sql" 2>/dev/null || \
+        echo "  WARNING: Authentik dump failed"
+
+    # Paperless — Postgres
+    echo "  Paperless (postgres)..."
+    incus exec paperless -- docker exec -i paperless-db-1 \
+        pg_dump -U paperless -d paperless \
+        > "$DUMP_DIR/paperless-postgres-${TIMESTAMP}.sql" 2>/dev/null || \
+        echo "  WARNING: Paperless dump failed"
+
+    # Forgejo — dump (includes DB + repos)
+    echo "  Forgejo (dump)..."
+    incus exec forgejo -- docker exec -i forgejo \
+        forgejo dump -c /etc/forgejo/app.ini --type tar.gz \
+        -f /tmp/forgejo-dump.tar.gz 2>/dev/null && \
+    incus file pull forgejo/tmp/forgejo-dump.tar.gz \
+        "$DUMP_DIR/forgejo-dump-${TIMESTAMP}.tar.gz" 2>/dev/null && \
+    incus exec forgejo -- rm -f /tmp/forgejo-dump.tar.gz || \
+        echo "  WARNING: Forgejo dump failed"
+
+    # Vaultwarden — SQLite backup
+    echo "  Vaultwarden (sqlite)..."
+    incus exec vaultwarden -- docker exec -i vaultwarden \
+        sqlite3 /data/db.sqlite3 ".backup /tmp/vaultwarden-backup.sqlite3" 2>/dev/null && \
+    incus file pull vaultwarden/tmp/vaultwarden-backup.sqlite3 \
+        "$DUMP_DIR/vaultwarden-${TIMESTAMP}.sqlite3" 2>/dev/null && \
+    incus exec vaultwarden -- rm -f /tmp/vaultwarden-backup.sqlite3 || \
+        echo "  WARNING: Vaultwarden dump failed"
+
+    # Clean up old dumps (keep last 3)
+    echo "  Cleaning old dumps..."
+    for prefix in immich-postgres authentik-postgres paperless-postgres forgejo-dump vaultwarden; do
+        ls -1t "$DUMP_DIR"/${prefix}-* 2>/dev/null | tail -n +4 | xargs -r rm -f
+    done
+
+    echo "Database dumps complete."
+    SCRIPT
+        chmod +x "$PRE_BACKUP"
+        echo "${green}${b}✓${n} Created $PRE_BACKUP"
+    fi
+    echo ""
+
+    # Step 6: Create borgmatic config template
+    echo "${cyan}Step 6: Borgmatic config${n}"
+    BORGMATIC_CONFIG="$CONFIG_DIR/config.yaml"
+    if [[ -f "$BORGMATIC_CONFIG" ]]; then
+        echo "${green}${b}✓${n} Config already exists: $BORGMATIC_CONFIG"
+    else
+        cat > "$BORGMATIC_CONFIG" << YAML
+    # Borgmatic configuration for ri → BorgBase
+    # Docs: https://torsion.org/borgmatic/docs/reference/configuration/
+
+    source_directories:
+        # Home directory
+        - /var/home/allard
+
+        # Database dumps (from pre-backup hook)
+        - /var/home/allard/backup-exports/db-dumps
+
+        # Incus container data (verify paths with: incus storage list / zfs list)
+        # TODO: Update <pool> with actual ZFS pool name from 'incus storage list'
+        - /var/lib/incus/storage-pools/<pool>/containers/immich
+        - /var/lib/incus/storage-pools/<pool>/containers/paperless
+        - /var/lib/incus/storage-pools/<pool>/containers/forgejo
+        - /var/lib/incus/storage-pools/<pool>/containers/vaultwarden
+        - /var/lib/incus/storage-pools/<pool>/containers/authentik
+        - /var/lib/incus/storage-pools/<pool>/containers/actual
+
+        # VM disk (large — consider local-only ZFS snapshots instead)
+        # - /var/lib/incus/storage-pools/<pool>/virtual-machines/desktop-win10
+
+    exclude_patterns:
+        - '*.pyc'
+        - '*/__pycache__'
+        - '*.tmp'
+        - /var/home/allard/.cache
+        - /var/home/allard/.local/share/containers/storage
+        - /var/home/allard/Downloads
+        - /var/home/allard/.local/share/Trash
+        - /var/home/allard/.mozilla
+        - /var/home/allard/.var/app
+        - /var/home/allard/.local/share/Steam
+        - /var/home/allard/.ollama
+        - /var/home/allard/nvidia-libs
+        - '**/node_modules'
+
+    repositories:
+        # TODO: Replace with actual BorgBase repo URL
+        - path: ssh://XXXXX@XXXXX.repo.borgbase.com/./repo
+          label: borgbase-ri
+
+    encryption_passcommand: cat /var/home/allard/.config/borgmatic/passphrase
+
+    ssh_command: ssh -i /var/home/allard/.ssh/borgbase-ri
+
+    compression: auto,zstd,6
+
+    keep_daily: 7
+    keep_weekly: 4
+    keep_monthly: 6
+
+    before_backup:
+        - /var/home/allard/bin/borgmatic-pre-backup.sh
+
+    checks:
+        - name: repository
+          frequency: 2 weeks
+        - name: archives
+          frequency: 1 month
+    YAML
+        echo "${green}${b}✓${n} Created $BORGMATIC_CONFIG"
+        echo "${yellow}${b}TODO: Edit config to set BorgBase repo URL and verify Incus storage paths${n}"
+    fi
+    echo ""
+
+    # Step 7: Create systemd timer
+    echo "${cyan}Step 7: Systemd timer${n}"
+    if [[ -f "$SYSTEMD_DIR/borgmatic.service" ]]; then
+        echo "${green}${b}✓${n} borgmatic.service already exists"
+    else
+        cat > "$SYSTEMD_DIR/borgmatic.service" << 'UNIT'
+    [Unit]
+    Description=Borgmatic backup to BorgBase
+    Wants=network-online.target
+    After=network-online.target
+    # Prevent system sleep during backup
+    ConditionACPower=true
+
+    [Service]
+    Type=oneshot
+    Nice=19
+    IOSchedulingClass=best-effort
+    IOSchedulingPriority=7
+    ExecStart=%h/.linuxbrew/bin/borgmatic --verbosity -2 --syslog-verbosity 1
+    UNIT
+        echo "${green}${b}✓${n} Created borgmatic.service"
+    fi
+
+    if [[ -f "$SYSTEMD_DIR/borgmatic.timer" ]]; then
+        echo "${green}${b}✓${n} borgmatic.timer already exists"
+    else
+        cat > "$SYSTEMD_DIR/borgmatic.timer" << 'UNIT'
+    [Unit]
+    Description=Run borgmatic backup daily
+
+    [Timer]
+    OnCalendar=*-*-* 03:00:00
+    RandomizedDelaySec=30m
+    Persistent=true
+
+    [Install]
+    WantedBy=timers.target
+    UNIT
+        echo "${green}${b}✓${n} Created borgmatic.timer"
+    fi
+    echo ""
+
+    # Step 8: Enable timer
+    echo "${cyan}Step 8: Enable timer${n}"
+    systemctl --user daemon-reload
+    systemctl --user enable borgmatic.timer
+    systemctl --user start borgmatic.timer
+    echo "${green}${b}✓${n} borgmatic.timer enabled and started"
+
+    # Enable lingering so timers run without login
+    if ! loginctl show-user "$(whoami)" 2>/dev/null | grep -q "Linger=yes"; then
+        echo "Enabling linger for $(whoami)..."
+        loginctl enable-linger "$(whoami)"
+        echo "${green}${b}✓${n} Linger enabled"
+    else
+        echo "${green}${b}✓${n} Linger already enabled"
+    fi
+    echo ""
+
+    # Summary
+    echo "${b}Setup complete!${n}"
+    echo ""
+    echo "${b}Next steps:${n}"
+    echo "  1. Create a BorgBase repo at https://www.borgbase.com"
+    echo "     - Add the SSH public key shown above"
+    echo "     - Enable append-only mode"
+    echo "     - Copy the repo URL"
+    echo ""
+    echo "  2. Edit borgmatic config with your repo URL:"
+    echo "     ${b}\$EDITOR $BORGMATIC_CONFIG${n}"
+    echo ""
+    echo "  3. Verify Incus storage paths and update config:"
+    echo "     ${b}incus storage list${n}"
+    echo "     ${b}zfs list${n}"
+    echo ""
+    echo "  4. Verify the pre-backup script container/service names:"
+    echo "     ${b}\$EDITOR $PRE_BACKUP${n}"
+    echo ""
+    echo "  5. Initialize the borg repo:"
+    echo "     ${b}borgmatic init --encryption repokey-blake2${n}"
+    echo ""
+    echo "  6. Run first backup:"
+    echo "     ${b}borgmatic create --verbosity 2 --list${n}"
+    echo ""
+    echo "  7. Test restore:"
+    echo "     ${b}borgmatic extract --archive latest --path <file> --destination /tmp/restore-test${n}"
+    echo ""
+    echo "  8. Export and save repo key in 1Password:"
+    echo "     ${b}borgmatic key export --directory /tmp/${n}"
+    echo "     Label: BorgBase ri — borg repo key"
+    echo ""
+    echo "  9. Store passphrase in 1Password:"
+    echo "     Label: BorgBase ri — borg passphrase"
+    echo "     ${b}cat $PASSPHRASE_FILE${n}"
+    echo ""
+    echo "  Timer status: ${b}systemctl --user status borgmatic.timer${n}"
+    echo "  Manual run:   ${b}systemctl --user start borgmatic.service${n}"

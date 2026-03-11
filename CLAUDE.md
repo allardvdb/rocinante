@@ -153,6 +153,7 @@ User-level configuration via ujust (defined in `custom/ujust/rocinante.just`):
 - `ujust enable-yubikey-gpg` - Prepare shell for GPG operations with YubiKey 5
 - `ujust toggle-suspend` - Toggle system suspend for remote access (desktop-aware: GNOME/KDE)
 - `ujust configure-yubikey-pam` - Configure YubiKey for PAM authentication (desktop-aware: GDM/SDDM)
+- `ujust setup-borgmatic` - Set up borgmatic backups to BorgBase (encrypted, automated)
 - `ujust setup-gpu-passthrough` - Configure IOMMU and Incus for GPU passthrough
 - `ujust fix-amdgpu` - Apply AMD GPU workarounds for Framework laptops
 
