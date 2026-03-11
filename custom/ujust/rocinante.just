@@ -946,8 +946,8 @@ setup-borgmatic:
     else
         cat > "$PRE_BACKUP" << 'SCRIPT'
     #!/usr/bin/env bash
-    set -euo pipefail
     # borgmatic pre-backup hook: dump databases from Incus containers
+    # Best-effort: continues even if some containers are stopped
     # Adjust container names and docker service names as needed
 
     DUMP_DIR="$HOME/backup-exports/db-dumps"
@@ -996,9 +996,17 @@ setup-borgmatic:
     incus exec vaultwarden -- rm -f /tmp/vaultwarden-backup.sqlite3 || \
         echo "  WARNING: Vaultwarden dump failed"
 
+    # Vikunja — SQLite backup (no Docker, direct on container filesystem)
+    echo "  Vikunja (sqlite)..."
+    incus exec vikunja -- sqlite3 /opt/vikunja/db/vikunja.db ".backup /tmp/vikunja-backup.db" 2>/dev/null && \
+    incus file pull vikunja/tmp/vikunja-backup.db \
+        "$DUMP_DIR/vikunja-${TIMESTAMP}.db" 2>/dev/null && \
+    incus exec vikunja -- rm -f /tmp/vikunja-backup.db || \
+        echo "  WARNING: Vikunja dump failed"
+
     # Clean up old dumps (keep last 3)
     echo "  Cleaning old dumps..."
-    for prefix in immich-postgres authentik-postgres paperless-postgres forgejo-dump vaultwarden; do
+    for prefix in immich-postgres authentik-postgres paperless-postgres forgejo-dump vaultwarden vikunja; do
         ls -1t "$DUMP_DIR"/${prefix}-* 2>/dev/null | tail -n +4 | xargs -r rm -f
     done
 
@@ -1033,6 +1041,9 @@ setup-borgmatic:
         - /var/lib/incus/storage-pools/default/containers/vaultwarden
         - /var/lib/incus/storage-pools/default/containers/authentik
         - /var/lib/incus/storage-pools/default/containers/actual
+        - /var/lib/incus/storage-pools/default/containers/vikunja
+        - /var/lib/incus/storage-pools/default/containers/mail-archive
+        - /var/lib/incus/storage-pools/default/containers/abc-coach
 
         # VM disk (large — consider local-only ZFS snapshots instead)
         # - /var/lib/incus/storage-pools/default/virtual-machines/desktop-win10
