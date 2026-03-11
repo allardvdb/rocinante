@@ -1026,17 +1026,16 @@ setup-borgmatic:
         # Database dumps (from pre-backup hook)
         - /var/home/allard/backup-exports/db-dumps
 
-        # Incus container data (verify paths with: incus storage list / zfs list)
-        # TODO: Update <pool> with actual ZFS pool name from 'incus storage list'
-        - /var/lib/incus/storage-pools/<pool>/containers/immich
-        - /var/lib/incus/storage-pools/<pool>/containers/paperless
-        - /var/lib/incus/storage-pools/<pool>/containers/forgejo
-        - /var/lib/incus/storage-pools/<pool>/containers/vaultwarden
-        - /var/lib/incus/storage-pools/<pool>/containers/authentik
-        - /var/lib/incus/storage-pools/<pool>/containers/actual
+        # Incus container data (ZFS pool: default, legacy mount)
+        - /var/lib/incus/storage-pools/default/containers/immich
+        - /var/lib/incus/storage-pools/default/containers/paperless
+        - /var/lib/incus/storage-pools/default/containers/forgejo
+        - /var/lib/incus/storage-pools/default/containers/vaultwarden
+        - /var/lib/incus/storage-pools/default/containers/authentik
+        - /var/lib/incus/storage-pools/default/containers/actual
 
         # VM disk (large — consider local-only ZFS snapshots instead)
-        # - /var/lib/incus/storage-pools/<pool>/virtual-machines/desktop-win10
+        # - /var/lib/incus/storage-pools/default/virtual-machines/desktop-win10
 
     exclude_patterns:
         - '*.pyc'
@@ -1068,8 +1067,9 @@ setup-borgmatic:
     keep_weekly: 4
     keep_monthly: 6
 
-    before_backup:
-        - /var/home/allard/bin/borgmatic-pre-backup.sh
+    commands:
+        before_backup:
+            - /var/home/allard/bin/borgmatic-pre-backup.sh
 
     checks:
         - name: repository
