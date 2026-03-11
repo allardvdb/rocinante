@@ -886,24 +886,20 @@ setup-borgmatic:
     DUMP_DIR="$HOME/backup-exports/db-dumps"
     PRE_BACKUP="$HOME/bin/borgmatic-pre-backup.sh"
 
-    # Step 1: Install borgmatic via pipx
+    # Step 1: Install borgmatic via brew
     echo "${cyan}Step 1: Install borgmatic${n}"
     if command -v borgmatic &>/dev/null; then
         echo "${green}${b}✓${n} borgmatic already installed: $(borgmatic --version)"
     else
-        if ! command -v pipx &>/dev/null; then
-            echo "Installing pipx..."
-            sudo dnf5 install -y pipx 2>/dev/null || brew install pipx
-        fi
-        echo "Installing borgmatic via pipx..."
-        pipx install borgmatic
+        echo "Installing borgmatic via brew..."
+        brew install borgmatic
         echo "${green}${b}✓${n} borgmatic installed"
     fi
     if command -v borg &>/dev/null; then
         echo "${green}${b}✓${n} borg already installed: $(borg --version)"
     else
-        echo "Installing borgbackup via pipx..."
-        pipx inject borgmatic borgbackup
+        echo "Installing borgbackup via brew..."
+        brew install borgbackup
         echo "${green}${b}✓${n} borgbackup installed"
     fi
     echo ""
@@ -1104,7 +1100,7 @@ setup-borgmatic:
     Nice=19
     IOSchedulingClass=best-effort
     IOSchedulingPriority=7
-    ExecStart=%h/.local/bin/borgmatic --verbosity -2 --syslog-verbosity 1
+    ExecStart=%h/.linuxbrew/bin/borgmatic --verbosity -2 --syslog-verbosity 1
     UNIT
         echo "${green}${b}✓${n} Created borgmatic.service"
     fi
