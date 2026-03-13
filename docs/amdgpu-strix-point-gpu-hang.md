@@ -104,9 +104,66 @@ journalctl -b -1 -k | grep -i -E 'suspend|resume|s2idle|MES|VPE'
 
 Per the Framework community, kernels **6.18.x and 6.19.x** introduce additional amdgpu regressions (broken CWSR causing GPU reset loops). Stick with 6.15.x through 6.17.x until fixes land upstream.
 
+## linux-firmware Regression (20260221)
+
+The `linux-firmware-20260221-1` package introduced a regression that breaks S0ix on Strix Point GPUs. When affected:
+
+- `amd_pmc: Last suspend didn't reach deepest state` appears after every resume
+- S0ix entry count and residency are both 0
+- Battery drains rapidly during suspend
+
+**Fix:** The rocinante image pins `linux-firmware` to version 20260309+ at build time via `build/50-firmware.sh`. If you're on a stock Fedora install, update firmware manually:
+
+```bash
+# Check current version
+rpm -q linux-firmware
+
+# If on 20260221, update through dnf or wait for next image rebuild
+sudo dnf5 update linux-firmware
+```
+
+See: [Bazzite #4356](https://github.com/bazzite-org/bazzite/issues/4356)
+
+## Sleep/Suspend Fixes
+
+Beyond GPU stability, several factors affect sleep quality on Framework 13 AMD:
+
+### S0ix Blockers
+
+| Blocker | Solution | Applied by |
+|---------|----------|------------|
+| Touchpad (PIXA3854) wakeup events | Disable as wakeup source before suspend | `ujust fix-sleep` |
+| Lid sensor wakeup events | Disable as wakeup source before suspend | `ujust fix-sleep` |
+| Goodix fingerprint reader (27c6:609c) | Disable via udev rule | Build-time (image) |
+| GVFS/FUSE mounts blocking suspend | Lazy-unmount before suspend | Build-time (image) |
+| Missing RTC ACPI alarm | `rtc_cmos.use_acpi_alarm=1` kernel param | `ujust fix-sleep` |
+
+### Kernel Version Notes
+
+- **6.18.10**: Has amdgpu VPE suspend regression (queue reset fails on resume)
+- **6.18.16+**: VPE fix backported (available in F43 testing)
+- **7.0+**: Expected to include MES scheduler improvements for gfx1150
+
+### Diagnostic Commands
+
+```bash
+# Run full diagnostics
+ujust diagnose-sleep
+
+# Check S0ix stats after resume (non-zero = working)
+sudo cat /sys/kernel/debug/amd_pmc/s0ix_stats
+
+# Timed suspend test (10 seconds)
+sudo rtcwake -m freeze -s 10
+```
+
 ## References
 
 - [AMD GPU MES Timeouts on Framework 13 (community thread)](https://community.frame.work/t/amd-gpu-mes-timeouts-causing-system-hangs-on-framework-laptop-13-amd-ai-300-series/71364)
 - [Critical amdgpu bugs in kernel 6.18/6.19](https://community.frame.work/t/attn-critical-bugs-in-amdgpu-driver-included-with-kernel-6-18-x-6-19-x/79221)
 - [MES ring buffer overflow fix (upstream patch)](https://lists.freedesktop.org/archives/amd-gfx/2024-July/111372.html)
 - [gfx1150 MES scheduler wedge report (amd-gfx mailing list)](http://www.mail-archive.com/amd-gfx@lists.freedesktop.org/msg133723.html)
+- [Bazzite #4356 — linux-firmware S0ix regression](https://github.com/bazzite-org/bazzite/issues/4356)
+- [Bluefin #4123 — GVFS blocking suspend](https://github.com/ublue-os/bluefin/issues/4123)
+- [Bluefin #3862 — Framework 13 sleep issues](https://github.com/ublue-os/bluefin/issues/3862)
+- [Arch Wiki — Framework Laptop 13 Sleep](https://wiki.archlinux.org/title/Framework_Laptop_13#Sleep)

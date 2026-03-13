@@ -156,6 +156,8 @@ User-level configuration via ujust (defined in `custom/ujust/rocinante.just`):
 - `ujust setup-borgmatic` - Set up borgmatic backups to BorgBase (encrypted, automated)
 - `ujust setup-gpu-passthrough` - Configure IOMMU and Incus for GPU passthrough
 - `ujust fix-amdgpu` - Apply AMD GPU workarounds for Framework laptops
+- `ujust fix-sleep` - Fix sleep/suspend S0ix issues on Framework 13 AMD
+- `ujust diagnose-sleep` - Diagnose sleep/suspend issues on Framework 13 AMD
 
 ## Common Tasks
 
