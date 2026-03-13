@@ -18,7 +18,10 @@ dnf5 -y install \
     "${KOJI_BASE}/linux-firmware-${FIRMWARE_RELEASE}.noarch.rpm" \
     "${KOJI_BASE}/linux-firmware-whence-${FIRMWARE_RELEASE}.noarch.rpm" \
     "${KOJI_BASE}/amd-gpu-firmware-${FIRMWARE_RELEASE}.noarch.rpm" \
-    "${KOJI_BASE}/amd-ucode-firmware-${FIRMWARE_RELEASE}.noarch.rpm"
+    "${KOJI_BASE}/amd-ucode-firmware-${FIRMWARE_RELEASE}.noarch.rpm" \
+    "${KOJI_BASE}/mediatek-firmware-${FIRMWARE_RELEASE}.noarch.rpm" \
+    "${KOJI_BASE}/realtek-firmware-${FIRMWARE_RELEASE}.noarch.rpm" \
+    "${KOJI_BASE}/cirrus-audio-firmware-${FIRMWARE_RELEASE}.noarch.rpm"
 
 echo "Installed firmware version:"
 rpm -q linux-firmware
