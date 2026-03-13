@@ -438,6 +438,82 @@ setup-gpu-passthrough:
         echo "No changes needed — everything is already configured."
     fi
 
+# Fix sleep/suspend issues on Framework 13 AMD (S0ix deep sleep)
+[group('Rocinante')]
+fix-sleep:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Terminal formatting
+    b=$(tput bold 2>/dev/null) || b=""
+    n=$(tput sgr0 2>/dev/null) || n=""
+    green=$(tput setaf 2 2>/dev/null) || green=""
+    yellow=$(tput setaf 3 2>/dev/null) || yellow=""
+
+    echo "${b}Fix Sleep/Suspend (Framework 13 AMD — S0ix)${n}"
+    echo ""
+    echo "This applies kernel parameters and installs a sleep hook to fix S0ix:"
+    echo "  - rtc_cmos.use_acpi_alarm=1  (RTC wakeup for s2idle)"
+    echo "  - Disables touchpad/lid as wakeup sources (blocks S0ix deep sleep)"
+    echo ""
+    echo "Reference: https://wiki.archlinux.org/title/Framework_Laptop_13#Sleep"
+    echo ""
+
+    CURRENT_KARGS=$(rpm-ostree kargs 2>/dev/null || echo "")
+    NEEDS_REBOOT=false
+
+    # Kernel parameters
+    if echo "$CURRENT_KARGS" | grep -q "rtc_cmos.use_acpi_alarm=1"; then
+        echo "${green}${b}✓${n} rtc_cmos.use_acpi_alarm=1 already set"
+    else
+        echo "Adding ${b}rtc_cmos.use_acpi_alarm=1${n}..."
+        sudo rpm-ostree kargs --append-if-missing="rtc_cmos.use_acpi_alarm=1"
+        NEEDS_REBOOT=true
+        echo "${green}${b}✓${n} Added rtc_cmos.use_acpi_alarm=1"
+    fi
+
+    # Install wakeup source management hook
+    SLEEP_HOOK="/etc/systemd/system-sleep/50-disable-wakeup-sources.sh"
+    if [[ -f "$SLEEP_HOOK" ]]; then
+        echo "${green}${b}✓${n} Wakeup source hook already installed"
+    else
+        echo "Installing wakeup source management hook..."
+        sudo tee "$SLEEP_HOOK" > /dev/null << 'HOOK'
+    #!/usr/bin/bash
+    # Disable touchpad and lid as wakeup sources before suspend
+    # These devices generate spurious wakeup events that block S0ix deep sleep
+    # on Framework 13 AMD (Strix Point)
+
+    case "$1" in
+        pre)
+            # Disable touchpad (PIXA3854) wakeup
+            for dev in $(find /sys/devices -name "wakeup" -path "*PIXA3854*" 2>/dev/null); do
+                echo "disabled" > "$dev" 2>/dev/null || true
+            done
+            # Disable lid sensor wakeup
+            for dev in $(find /sys/devices -name "wakeup" -path "*PNP0C0D*" 2>/dev/null); do
+                echo "disabled" > "$dev" 2>/dev/null || true
+            done
+            ;;
+    esac
+    HOOK
+        sudo chmod 755 "$SLEEP_HOOK"
+        echo "${green}${b}✓${n} Installed $SLEEP_HOOK"
+    fi
+    echo ""
+
+    if [[ "$NEEDS_REBOOT" == true ]]; then
+        echo "${yellow}A reboot is required for kernel parameter changes to take effect.${n}"
+        echo ""
+        read -p "Reboot now? [y/N]: " reboot_confirm
+        if [[ "$reboot_confirm" =~ ^[Yy]$ ]]; then
+            systemctl reboot
+        else
+            echo "Please reboot when convenient: ${b}systemctl reboot${n}"
+        fi
+    else
+        echo "No kernel parameter changes needed — everything is already configured."
+    fi
+
 # Apply AMD GPU workarounds for Framework laptops (ring buffer crash fix)
 [group('Rocinante')]
 fix-amdgpu:
@@ -452,8 +528,9 @@ fix-amdgpu:
     echo "${b}AMD GPU Workaround (Framework / Ryzen APU)${n}"
     echo ""
     echo "This adds kernel parameters to fix amdgpu ring buffer crashes:"
-    echo "  - amdgpu.dcdebugmask=0x10  (disable PSR / Panel Self-Refresh)"
-    echo "  - amdgpu.sg_display=0      (disable scatter/gather display)"
+    echo "  - amdgpu.dcdebugmask=0x10       (disable PSR / Panel Self-Refresh)"
+    echo "  - amdgpu.sg_display=0            (disable scatter/gather display)"
+    echo "  - pcie_aspm.policy=powersupersave (aggressive PCIe power saving)"
     echo ""
     echo "Reference: https://community.frame.work/t/solved-amdgpu-driver-crash-during-high-loads/59741"
     echo ""
@@ -478,6 +555,15 @@ fix-amdgpu:
         NEEDS_REBOOT=true
         echo "${green}${b}✓${n} Added amdgpu.sg_display=0"
     fi
+
+    if echo "$CURRENT_KARGS" | grep -q "pcie_aspm.policy=powersupersave"; then
+        echo "${green}${b}✓${n} pcie_aspm.policy=powersupersave already set"
+    else
+        echo "Adding ${b}pcie_aspm.policy=powersupersave${n}..."
+        sudo rpm-ostree kargs --append-if-missing="pcie_aspm.policy=powersupersave"
+        NEEDS_REBOOT=true
+        echo "${green}${b}✓${n} Added pcie_aspm.policy=powersupersave"
+    fi
     echo ""
 
     if [[ "$NEEDS_REBOOT" == true ]]; then
@@ -492,6 +578,117 @@ fix-amdgpu:
     else
         echo "No changes needed — workarounds already applied."
     fi
+
+# Diagnose sleep/suspend issues on Framework 13 AMD
+[group('Rocinante')]
+diagnose-sleep:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Terminal formatting
+    b=$(tput bold 2>/dev/null) || b=""
+    n=$(tput sgr0 2>/dev/null) || n=""
+    green=$(tput setaf 2 2>/dev/null) || green=""
+    yellow=$(tput setaf 3 2>/dev/null) || yellow=""
+    red=$(tput setaf 1 2>/dev/null) || red=""
+
+    echo "${b}Sleep/Suspend Diagnostics (Framework 13 AMD)${n}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    # System info
+    echo "${b}System:${n}"
+    echo "  Kernel:    $(uname -r)"
+    FW_VER=$(rpm -q linux-firmware 2>/dev/null || echo "unknown")
+    echo "  Firmware:  ${FW_VER}"
+    SLEEP_MODE=$(cat /sys/power/mem_sleep 2>/dev/null || echo "unknown")
+    echo "  Sleep mode: ${SLEEP_MODE}"
+    echo ""
+
+    # Known-bad firmware check
+    if echo "$FW_VER" | grep -q "20260221"; then
+        echo "${red}${b}⚠ WARNING: linux-firmware-20260221 has a known S0ix regression!${n}"
+        echo "  S0ix entry/residency will be 0. Update firmware or use rocinante image with fix."
+        echo "  See: https://github.com/bazzite-org/bazzite/issues/4356"
+        echo ""
+    fi
+
+    # Kernel parameters
+    echo "${b}Kernel parameters:${n}"
+    CMDLINE=$(cat /proc/cmdline)
+    for param in amdgpu.dcdebugmask amdgpu.sg_display amdgpu.cwsr_enable pcie_aspm.policy rtc_cmos.use_acpi_alarm; do
+        val=$(echo "$CMDLINE" | tr ' ' '\n' | grep "^${param}=" || true)
+        if [[ -n "$val" ]]; then
+            echo "  ${green}${b}✓${n} ${val}"
+        else
+            echo "  ${yellow}·${n} ${param} (not set)"
+        fi
+    done
+    echo ""
+
+    # ACPI wakeup sources
+    echo "${b}ACPI wakeup sources (enabled):${n}"
+    if [[ -f /proc/acpi/wakeup ]]; then
+        grep -E "enabled" /proc/acpi/wakeup | while read -r line; do
+            echo "  $line"
+        done
+    else
+        echo "  /proc/acpi/wakeup not available"
+    fi
+    echo ""
+
+    # USB wakeup
+    echo "${b}USB devices with wakeup enabled:${n}"
+    for dev in /sys/bus/usb/devices/*/power/wakeup; do
+        if [[ -f "$dev" ]] && [[ "$(cat "$dev" 2>/dev/null)" == "enabled" ]]; then
+            devpath=$(dirname "$(dirname "$dev")")
+            vendor=$(cat "${devpath}/idVendor" 2>/dev/null || echo "????")
+            product=$(cat "${devpath}/idProduct" 2>/dev/null || echo "????")
+            prodname=$(cat "${devpath}/product" 2>/dev/null || echo "unknown")
+            echo "  ${vendor}:${product} ${prodname}"
+        fi
+    done
+    echo ""
+
+    # Sleep hooks
+    echo "${b}Installed sleep hooks:${n}"
+    for hook in /usr/lib/systemd/system-sleep/*.sh /etc/systemd/system-sleep/*.sh; do
+        if [[ -f "$hook" ]]; then
+            echo "  ${green}${b}✓${n} ${hook}"
+        fi
+    done
+    echo ""
+
+    # amd_pmc stats
+    echo "${b}AMD PMC (S0ix stats):${n}"
+    PMC_DIR=$(find /sys/kernel/debug/amd_pmc -maxdepth 0 2>/dev/null || true)
+    if [[ -n "$PMC_DIR" && -d "$PMC_DIR" ]]; then
+        for stat in s0ix_stats smu_fw_version; do
+            if [[ -f "${PMC_DIR}/${stat}" ]]; then
+                echo "  ${stat}:"
+                sed 's/^/    /' "${PMC_DIR}/${stat}" 2>/dev/null || echo "    (permission denied — try with sudo)"
+            fi
+        done
+    else
+        echo "  ${yellow}Not accessible (try: sudo mount -t debugfs debugfs /sys/kernel/debug)${n}"
+    fi
+    echo ""
+
+    # Recent suspend/resume errors
+    echo "${b}Recent suspend/resume errors (last boot):${n}"
+    if journalctl -b -k --priority=0..4 --grep="suspend|resume|s2idle|s0ix|amd_pmc|VPE" --no-pager -q 2>/dev/null | tail -10 | head -10; then
+        true
+    else
+        echo "  No errors found (or journal not accessible)"
+    fi
+    echo ""
+
+    # Optional suspend test
+    echo "${b}Suspend test:${n}"
+    echo "  To run a 10-second suspend test:"
+    echo "  ${b}sudo rtcwake -m freeze -s 10${n}"
+    echo ""
+    echo "  Then check: ${b}sudo cat /sys/kernel/debug/amd_pmc/s0ix_stats${n}"
+    echo "  Look for non-zero 'Success' and 'Residency' values."
 
 # Run first-time user setup tasks
 [group('Rocinante')]
