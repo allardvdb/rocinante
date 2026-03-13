@@ -37,10 +37,16 @@ This is a custom Universal Blue / Bluefin Linux image that creates a personalize
 │   ├── 20-1password.sh       # 1Password desktop + CLI installation
 │   ├── 30-incus.sh           # Incus VM manager + QEMU/SPICE/VFIO
 │   ├── 40-rocm.sh            # AMD ROCm compute stack
+│   ├── 50-firmware.sh        # linux-firmware version override (Koji)
 │   └── copr-helpers.sh       # COPR helper functions (sourced by build scripts)
 ├── custom/                    # Custom files copied into the image at build time
 │   ├── brew/                  # Brewfiles for Homebrew packages
 │   │   └── default.Brewfile  # Default package list
+│   ├── systemd/
+│   │   └── system-sleep/
+│   │       └── 50-unmount-fuse.sh  # GVFS/FUSE unmount before suspend
+│   ├── udev/
+│   │   └── 99-disable-goodix-fingerprint.rules  # Disable fingerprint reader (S0ix)
 │   └── ujust/                 # Custom ujust recipes
 │       └── rocinante.just    # Rocinante-specific recipes (→ 60-custom.just)
 ├── disk_config/               # Disk image configurations (ISO, QCOW2, KDE/GNOME)
@@ -64,9 +70,11 @@ This means build scripts and custom files are never `COPY`'d into the final imag
   - Installs Homebrew via `rsync` from `/ctx/oci/brew/`
   - Copies Brewfiles to `/usr/share/ublue-os/homebrew/`
   - Concatenates `custom/ujust/*.just` into `/usr/share/ublue-os/just/60-custom.just`
+  - Copies udev rules from `custom/udev/` to `/etc/udev/rules.d/`
+  - Installs systemd sleep hooks from `custom/systemd/system-sleep/` to `/usr/lib/systemd/system-sleep/`
   - Installs dnf5 packages
   - Configures systemd units
-  - Calls additional numbered scripts (e.g., `20-1password.sh`)
+  - Calls additional numbered scripts (`20-1password.sh`, `30-incus.sh`, `40-rocm.sh`, `50-firmware.sh`)
 
 ### ujust recipes (60-custom.just)
 Bluefin's `00-entry.just` includes `import? "/usr/share/ublue-os/just/60-custom.just"`. The build script concatenates all `.just` files from `custom/ujust/` into this file, so recipes are automatically available via `ujust`.
@@ -78,7 +86,7 @@ Three variants are built from different base images:
 - **rocinante-nvidia**: `ghcr.io/ublue-os/bluefin-nvidia-open:stable` (GNOME + NVIDIA)
 - **rocinante-aurora**: `ghcr.io/ublue-os/aurora:stable` (KDE Plasma)
 
-All variants share the same build scripts and customizations. The Containerfile accepts a `BASE_IMAGE` build arg to select the variant. Developer tools are managed via Homebrew (@ublue-os/brew).
+All variants share the same build scripts and customizations. The Containerfile accepts `BASE_IMAGE` (variant selection) and `FIRMWARE_VERSION` (linux-firmware pin, default `20260309`) build args. Developer tools are managed via Homebrew (@ublue-os/brew).
 
 ## Key Customizations
 
@@ -96,6 +104,18 @@ All variants share the same build scripts and customizations. The Containerfile 
 - `brew-setup.service` runs on first boot to initialize Homebrew
 - `brew-update.timer` and `brew-upgrade.timer` keep packages current
 - Brewfiles in `custom/brew/` are copied to `/usr/share/ublue-os/homebrew/`
+
+### Firmware Override
+- `build/50-firmware.sh` pins `linux-firmware` to a known-good version from Koji
+- Fixes S0ix regression introduced in `linux-firmware-20260221` on AMD Strix Point
+- Version controlled via `FIRMWARE_VERSION` build arg in Containerfile
+
+### Sleep/Suspend Fixes (Framework 13 AMD)
+- Goodix fingerprint reader disabled via udev rule (`custom/udev/99-disable-goodix-fingerprint.rules`)
+- GVFS/FUSE mounts lazy-unmounted before suspend (`custom/systemd/system-sleep/50-unmount-fuse.sh`)
+- Machine-specific fixes applied via `ujust fix-sleep` (kernel params, wakeup source management)
+- Diagnostics via `ujust diagnose-sleep`
+- Details: `docs/amdgpu-strix-point-gpu-hang.md`
 
 ### System Configuration
 - Custom package installations via dnf5
