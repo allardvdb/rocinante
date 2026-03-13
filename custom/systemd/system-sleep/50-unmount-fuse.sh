@@ -6,7 +6,7 @@
 case "$1" in
     pre)
         # Lazy-unmount all gvfsd-fuse mounts to prevent suspend blocking
-        for mount in $(findmnt -t fuse.gvfsd-fuse -n -o TARGET 2>/dev/null); do
+        findmnt -t fuse.gvfsd-fuse -n -o TARGET 2>/dev/null | while IFS= read -r mount; do
             umount -l "$mount" 2>/dev/null || true
         done
         ;;
