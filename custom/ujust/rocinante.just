@@ -452,7 +452,8 @@ fix-sleep:
     echo "${b}Fix Sleep/Suspend (Framework 13 AMD — S0ix)${n}"
     echo ""
     echo "This applies kernel parameters and installs a sleep hook to fix S0ix:"
-    echo "  - rtc_cmos.use_acpi_alarm=1  (RTC wakeup for s2idle)"
+    echo "  - rtc_cmos.use_acpi_alarm=1          (RTC wakeup for s2idle)"
+    echo "  - pcie_aspm.policy=powersupersave     (aggressive PCIe power saving)"
     echo "  - Disables touchpad/lid as wakeup sources (blocks S0ix deep sleep)"
     echo ""
     echo "Reference: https://wiki.archlinux.org/title/Framework_Laptop_13#Sleep"
@@ -471,12 +472,22 @@ fix-sleep:
         echo "${green}${b}✓${n} Added rtc_cmos.use_acpi_alarm=1"
     fi
 
+    if echo "$CURRENT_KARGS" | grep -q "pcie_aspm.policy=powersupersave"; then
+        echo "${green}${b}✓${n} pcie_aspm.policy=powersupersave already set"
+    else
+        echo "Adding ${b}pcie_aspm.policy=powersupersave${n}..."
+        sudo rpm-ostree kargs --append-if-missing="pcie_aspm.policy=powersupersave"
+        NEEDS_REBOOT=true
+        echo "${green}${b}✓${n} Added pcie_aspm.policy=powersupersave"
+    fi
+
     # Install wakeup source management hook
     SLEEP_HOOK="/etc/systemd/system-sleep/50-disable-wakeup-sources.sh"
     if [[ -f "$SLEEP_HOOK" ]]; then
         echo "${green}${b}✓${n} Wakeup source hook already installed"
     else
         echo "Installing wakeup source management hook..."
+        sudo mkdir -p "$(dirname "$SLEEP_HOOK")"
         sudo tee "$SLEEP_HOOK" > /dev/null << 'HOOK'
     #!/usr/bin/bash
     # Disable touchpad and lid as wakeup sources before suspend
@@ -528,9 +539,8 @@ fix-amdgpu:
     echo "${b}AMD GPU Workaround (Framework / Ryzen APU)${n}"
     echo ""
     echo "This adds kernel parameters to fix amdgpu ring buffer crashes:"
-    echo "  - amdgpu.dcdebugmask=0x10       (disable PSR / Panel Self-Refresh)"
-    echo "  - amdgpu.sg_display=0            (disable scatter/gather display)"
-    echo "  - pcie_aspm.policy=powersupersave (aggressive PCIe power saving)"
+    echo "  - amdgpu.dcdebugmask=0x10  (disable PSR / Panel Self-Refresh)"
+    echo "  - amdgpu.sg_display=0      (disable scatter/gather display)"
     echo ""
     echo "Reference: https://community.frame.work/t/solved-amdgpu-driver-crash-during-high-loads/59741"
     echo ""
@@ -556,14 +566,6 @@ fix-amdgpu:
         echo "${green}${b}✓${n} Added amdgpu.sg_display=0"
     fi
 
-    if echo "$CURRENT_KARGS" | grep -q "pcie_aspm.policy=powersupersave"; then
-        echo "${green}${b}✓${n} pcie_aspm.policy=powersupersave already set"
-    else
-        echo "Adding ${b}pcie_aspm.policy=powersupersave${n}..."
-        sudo rpm-ostree kargs --append-if-missing="pcie_aspm.policy=powersupersave"
-        NEEDS_REBOOT=true
-        echo "${green}${b}✓${n} Added pcie_aspm.policy=powersupersave"
-    fi
     echo ""
 
     if [[ "$NEEDS_REBOOT" == true ]]; then
@@ -630,7 +632,7 @@ diagnose-sleep:
     if [[ -f /proc/acpi/wakeup ]]; then
         grep -E "enabled" /proc/acpi/wakeup | while read -r line; do
             echo "  $line"
-        done
+        done || true
     else
         echo "  /proc/acpi/wakeup not available"
     fi

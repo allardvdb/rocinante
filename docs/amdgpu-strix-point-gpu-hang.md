@@ -112,7 +112,7 @@ The `linux-firmware-20260221-1` package introduced a regression that breaks S0ix
 - S0ix entry count and residency are both 0
 - Battery drains rapidly during suspend
 
-**Fix:** The rocinante image overrides `linux-firmware` to version 20260309+ at build time. If you're on a stock Fedora install, update firmware manually:
+**Fix:** The rocinante image pins `linux-firmware` to version 20260309+ at build time via `build/50-firmware.sh`. If you're on a stock Fedora install, update firmware manually:
 
 ```bash
 # Check current version
