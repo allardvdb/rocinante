@@ -26,10 +26,14 @@ ujust first-run
 Individual recipes:
 - `ujust setup-1password-browser` — Flatpak browser integration
 - `ujust setup-yubikey-ssh` — YubiKey SSH authentication
+- `ujust enable-yubikey-gpg` — Prepare shell for GPG operations with YubiKey 5
 - `ujust toggle-suspend` — Disable suspend for remote access
 - `ujust setup-gpu-passthrough` — IOMMU + Incus GPU passthrough
 - `ujust configure-yubikey-pam` — YubiKey PAM authentication
+- `ujust setup-borgmatic` — Borgmatic backups to BorgBase
 - `ujust fix-amdgpu` — AMD GPU workarounds (Framework laptops)
+- `ujust fix-sleep` — Fix S0ix sleep issues (Framework 13 AMD)
+- `ujust diagnose-sleep` — Diagnose sleep/suspend issues
 
 ## What's included on top of vanilla Bluefin / Aurora
 
@@ -41,7 +45,9 @@ Individual recipes:
 | virt-viewer | SPICE client for `incus console --type=vga` |
 | ROCm | AMD GPU compute stack |
 | nvidia-container-toolkit | NVIDIA variant only |
-| Custom ujust recipes | YubiKey, 1Password, GPU passthrough, suspend toggle |
+| linux-firmware override | Pins known-good firmware version (S0ix regression fix) |
+| Sleep/suspend fixes | Udev rule + systemd-sleep hook for S0ix on Framework 13 AMD |
+| Custom ujust recipes | YubiKey, 1Password, GPU passthrough, sleep, borgmatic, and more |
 
 ## Project Structure
 
@@ -52,10 +58,13 @@ Individual recipes:
 │   ├── 20-1password.sh      # 1Password installation
 │   ├── 30-incus.sh          # Incus + QEMU/SPICE/VFIO
 │   ├── 40-rocm.sh           # AMD ROCm compute stack
+│   ├── 50-firmware.sh       # linux-firmware version override (Koji)
 │   └── copr-helpers.sh      # COPR helper functions
 ├── custom/                   # Custom files copied into the image
 │   ├── brew/                 # Brewfiles for Homebrew packages
 │   │   └── default.Brewfile
+│   ├── systemd/system-sleep/ # Systemd sleep hooks (→ /usr/lib/systemd/system-sleep/)
+│   ├── udev/                 # Udev rules (→ /etc/udev/rules.d/)
 │   └── ujust/                # Custom ujust recipes (→ 60-custom.just)
 │       └── rocinante.just
 ├── Containerfile             # Container build definition (ctx-stage pattern)
@@ -67,6 +76,7 @@ Individual recipes:
 - [1Password + Flatpak Browsers](docs/1password-flatpak-fix.md)
 - [YubiKey + Fingerprint Auth](docs/yubikey-1password-authentication.md)
 - [AMD GPU Strix Point Workaround](docs/amdgpu-strix-point-gpu-hang.md)
+- [Sleep/Suspend Setup (Framework 13 AMD)](docs/sleep-suspend-setup.md)
 
 ## Building
 

@@ -31,14 +31,17 @@ This provides the best of both worlds: full YubiKey functionality + convenient b
 
 ### 1. Prerequisites
 
+On Fedora Atomic (Bluefin/Aurora), most of these packages are already in the base image. If any are missing, layer them with `rpm-ostree`:
+
 ```bash
-# Fedora/Bluefin packages
-sudo dnf install -y \
-    pam-u2f \
-    fprintd \
-    fprintd-pam \
-    yubikey-manager \
-    yubikey-manager-qt
+rpm-ostree install pam-u2f fprintd fprintd-pam yubikey-manager
+systemctl reboot
+```
+
+Or on the rocinante image, use the automated recipe which handles PAM configuration:
+
+```bash
+ujust configure-yubikey-pam
 ```
 
 ### 2. Configure Fingerprint Scanner
@@ -240,5 +243,5 @@ While it doesn't match macOS's 14-day persistence, it significantly reduces pass
 
 ---
 
-*Last updated: October 2025*
-*Tested on: Bluefin Linux (Fedora 40 base)*
+*Last updated: March 2026*
+*Tested on: Bluefin Linux (Fedora 43 base)*
