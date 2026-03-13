@@ -22,14 +22,14 @@ systemctl reboot
 After rebooting onto the new image:
 
 ```bash
-# Apply sleep kernel params + wakeup source hook
+# Interactively configure sleep fixes (RTC alarm, ASPM policy, wakeup sources)
 ujust fix-sleep
 
-# Re-run fix-amdgpu to pick up the pcie_aspm.policy=powersupersave param
+# Interactively configure GPU fixes (PSR, scatter/gather)
 ujust fix-amdgpu
 ```
 
-Both recipes prompt for a reboot. You can decline the first and reboot after the second.
+Both recipes show current status and let you toggle individual fixes. They prompt for a reboot if kernel parameters were changed.
 
 ## Step 3: Verify
 
@@ -41,9 +41,9 @@ ujust diagnose-sleep
 
 Check the output for:
 - `linux-firmware` shows `20260309` or newer
-- `rtc_cmos.use_acpi_alarm=1` is set
-- `pcie_aspm.policy=powersupersave` is set
-- Wakeup source hook is listed under installed sleep hooks
+- `rtc_cmos.use_acpi_alarm=1` is set (if enabled via fix-sleep)
+- PCIe ASPM policy matches your selection (if set via fix-sleep)
+- Wakeup source hook is listed under installed sleep hooks (if enabled via fix-sleep)
 - No known-bad firmware warning
 
 Then run a timed suspend test:
@@ -69,9 +69,11 @@ Non-zero **Success** count and **Residency** values mean S0ix deep sleep is work
 
 | Fix | Command | What it does |
 |-----|---------|-------------|
-| RTC ACPI alarm for s2idle | `ujust fix-sleep` | Appends `rtc_cmos.use_acpi_alarm=1` kernel param |
-| Touchpad/lid wakeup suppression | `ujust fix-sleep` | Installs sleep hook in `/etc/systemd/system-sleep/` |
-| PCIe ASPM powersupersave | `ujust fix-amdgpu` | Appends `pcie_aspm.policy=powersupersave` kernel param |
+| RTC ACPI alarm for s2idle | `ujust fix-sleep` | Toggle `rtc_cmos.use_acpi_alarm=1` kernel param |
+| PCIe ASPM policy | `ujust fix-sleep` | Select ASPM policy (default/performance/powersave/powersupersave/unset) |
+| Touchpad/lid wakeup suppression | `ujust fix-sleep` | Toggle sleep hook in `/etc/systemd/system-sleep/` |
+| PSR disable (dcdebugmask) | `ujust fix-amdgpu` | Toggle `amdgpu.dcdebugmask=0x10` kernel param |
+| Scatter/gather disable | `ujust fix-amdgpu` | Toggle `amdgpu.sg_display=0` kernel param |
 
 ## Troubleshooting
 
