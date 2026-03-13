@@ -42,7 +42,13 @@ This is a known upstream bug in the `amdgpu` driver affecting Strix Point GPUs. 
 
 ## Workarounds
 
-These are machine-specific kernel parameters, not baked into the rocinante image. Apply them on the affected machine with `rpm-ostree kargs`:
+These are machine-specific kernel parameters, not baked into the rocinante image. The recommended way to apply them is:
+
+```bash
+ujust fix-amdgpu
+```
+
+This automatically applies the parameters below and prompts for a reboot. For manual control, use `rpm-ostree kargs`:
 
 ### Disable Panel Self Refresh (PSR)
 
