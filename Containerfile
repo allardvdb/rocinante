@@ -12,10 +12,12 @@ FROM ${BASE_IMAGE}
 # rocinante-nvidia: ghcr.io/ublue-os/bluefin-nvidia-open:stable
 # rocinante-aurora: ghcr.io/ublue-os/aurora:stable
 
+ARG FIRMWARE_VERSION=20260309
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache \
     --mount=type=cache,dst=/var/log \
     --mount=type=tmpfs,dst=/tmp \
+    FIRMWARE_VERSION=${FIRMWARE_VERSION} \
     /ctx/build/10-build.sh
 
 RUN bootc container lint
