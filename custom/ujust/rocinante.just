@@ -438,7 +438,7 @@ setup-gpu-passthrough:
         echo "No changes needed — everything is already configured."
     fi
 
-# Fix sleep/suspend issues on Framework 13 AMD (S0ix deep sleep)
+# Manage sleep/suspend fixes on Framework 13 AMD (S0ix deep sleep)
 [group('Rocinante')]
 fix-sleep:
     #!/usr/bin/env bash
@@ -449,46 +449,132 @@ fix-sleep:
     green=$(tput setaf 2 2>/dev/null) || green=""
     yellow=$(tput setaf 3 2>/dev/null) || yellow=""
 
-    echo "${b}Fix Sleep/Suspend (Framework 13 AMD — S0ix)${n}"
-    echo ""
-    echo "This applies kernel parameters and installs a sleep hook to fix S0ix:"
-    echo "  - rtc_cmos.use_acpi_alarm=1          (RTC wakeup for s2idle)"
-    echo "  - pcie_aspm.policy=powersupersave     (aggressive PCIe power saving)"
-    echo "  - Disables touchpad/lid as wakeup sources (blocks S0ix deep sleep)"
-    echo ""
-    echo "Reference: https://wiki.archlinux.org/title/Framework_Laptop_13#Sleep"
-    echo ""
-
-    CURRENT_KARGS=$(rpm-ostree kargs 2>/dev/null || echo "")
-    NEEDS_REBOOT=false
-
-    # Kernel parameters
-    if echo "$CURRENT_KARGS" | grep -q "rtc_cmos.use_acpi_alarm=1"; then
-        echo "${green}${b}✓${n} rtc_cmos.use_acpi_alarm=1 already set"
-    else
-        echo "Adding ${b}rtc_cmos.use_acpi_alarm=1${n}..."
-        sudo rpm-ostree kargs --append-if-missing="rtc_cmos.use_acpi_alarm=1"
-        NEEDS_REBOOT=true
-        echo "${green}${b}✓${n} Added rtc_cmos.use_acpi_alarm=1"
-    fi
-
-    if echo "$CURRENT_KARGS" | grep -q "pcie_aspm.policy=powersupersave"; then
-        echo "${green}${b}✓${n} pcie_aspm.policy=powersupersave already set"
-    else
-        echo "Adding ${b}pcie_aspm.policy=powersupersave${n}..."
-        sudo rpm-ostree kargs --append-if-missing="pcie_aspm.policy=powersupersave"
-        NEEDS_REBOOT=true
-        echo "${green}${b}✓${n} Added pcie_aspm.policy=powersupersave"
-    fi
-
-    # Install wakeup source management hook
     SLEEP_HOOK="/etc/systemd/system-sleep/50-disable-wakeup-sources.sh"
-    if [[ -f "$SLEEP_HOOK" ]]; then
-        echo "${green}${b}✓${n} Wakeup source hook already installed"
-    else
-        echo "Installing wakeup source management hook..."
-        sudo mkdir -p "$(dirname "$SLEEP_HOOK")"
-        sudo tee "$SLEEP_HOOK" > /dev/null << 'HOOK'
+    ASPM_VALUES=("default" "performance" "powersave" "powersupersave")
+    KARGS_CHANGED=false
+
+    show_status() {
+        CURRENT_KARGS=$(rpm-ostree kargs 2>/dev/null || echo "")
+
+        echo "${b}Sleep/Suspend Fixes (Framework 13 AMD)${n}"
+        echo ""
+
+        # RTC ACPI alarm
+        if echo "$CURRENT_KARGS" | grep -q "rtc_cmos.use_acpi_alarm=1"; then
+            echo "  RTC ACPI alarm:      ${green}${b}✓${n} applied"
+        else
+            echo "  RTC ACPI alarm:      · not applied"
+        fi
+
+        # PCIe ASPM policy
+        ASPM_CURRENT=""
+        for val in "${ASPM_VALUES[@]}"; do
+            if echo "$CURRENT_KARGS" | grep -q "pcie_aspm.policy=${val}"; then
+                ASPM_CURRENT="$val"
+                break
+            fi
+        done
+        if [[ -n "$ASPM_CURRENT" ]]; then
+            echo "  PCIe ASPM policy:    ${green}${b}✓${n} ${ASPM_CURRENT}"
+        else
+            echo "  PCIe ASPM policy:    · unset (kernel default)"
+        fi
+
+        # Wakeup source hook
+        if [[ -f "$SLEEP_HOOK" ]]; then
+            echo "  Wakeup source hook:  ${green}${b}✓${n} installed"
+        else
+            echo "  Wakeup source hook:  · not installed"
+        fi
+        echo ""
+    }
+
+    choose_menu() {
+        local prompt="$1"
+        shift
+        local options=("$@")
+        if command -v gum &> /dev/null; then
+            gum choose --header "$prompt" "${options[@]}"
+        else
+            echo "$prompt" >&2
+            local i=1
+            for opt in "${options[@]}"; do
+                echo "  ${i}) ${opt}" >&2
+                ((i++))
+            done
+            echo "" >&2
+            read -p "Choice [1-${#options[@]}]: " choice
+            if [[ "$choice" -ge 1 && "$choice" -le "${#options[@]}" ]] 2>/dev/null; then
+                echo "${options[$((choice-1))]}"
+            else
+                echo ""
+            fi
+        fi
+    }
+
+    toggle_rtc() {
+        CURRENT_KARGS=$(rpm-ostree kargs 2>/dev/null || echo "")
+        if echo "$CURRENT_KARGS" | grep -q "rtc_cmos.use_acpi_alarm=1"; then
+            echo "Removing ${b}rtc_cmos.use_acpi_alarm=1${n}..."
+            sudo rpm-ostree kargs --delete-if-present="rtc_cmos.use_acpi_alarm=1"
+            KARGS_CHANGED=true
+            echo "${green}${b}✓${n} Removed rtc_cmos.use_acpi_alarm=1"
+        else
+            echo "Adding ${b}rtc_cmos.use_acpi_alarm=1${n}..."
+            sudo rpm-ostree kargs --append-if-missing="rtc_cmos.use_acpi_alarm=1"
+            KARGS_CHANGED=true
+            echo "${green}${b}✓${n} Added rtc_cmos.use_acpi_alarm=1"
+        fi
+    }
+
+    change_aspm() {
+        # Detect current value
+        CURRENT_KARGS=$(rpm-ostree kargs 2>/dev/null || echo "")
+        ASPM_CURRENT=""
+        for val in "${ASPM_VALUES[@]}"; do
+            if echo "$CURRENT_KARGS" | grep -q "pcie_aspm.policy=${val}"; then
+                ASPM_CURRENT="$val"
+                break
+            fi
+        done
+
+        local header="PCIe ASPM policy"
+        if [[ -n "$ASPM_CURRENT" ]]; then
+            header="PCIe ASPM policy (current: ${ASPM_CURRENT})"
+        else
+            header="PCIe ASPM policy (current: unset)"
+        fi
+
+        ACTION=$(choose_menu "$header" "default" "performance" "powersave" "powersupersave" "unset (kernel default)" "Back")
+
+        if [[ "$ACTION" == "Back" || -z "$ACTION" ]]; then
+            return
+        fi
+
+        # Remove any existing ASPM policy values
+        for val in "${ASPM_VALUES[@]}"; do
+            sudo rpm-ostree kargs --delete-if-present="pcie_aspm.policy=${val}" 2>/dev/null || true
+        done
+
+        if [[ "$ACTION" == "unset (kernel default)" ]]; then
+            KARGS_CHANGED=true
+            echo "${green}${b}✓${n} Removed PCIe ASPM policy (using kernel default)"
+        else
+            sudo rpm-ostree kargs --append-if-missing="pcie_aspm.policy=${ACTION}"
+            KARGS_CHANGED=true
+            echo "${green}${b}✓${n} Set PCIe ASPM policy to ${ACTION}"
+        fi
+    }
+
+    toggle_wakeup_hook() {
+        if [[ -f "$SLEEP_HOOK" ]]; then
+            echo "Removing wakeup source hook..."
+            sudo rm "$SLEEP_HOOK"
+            echo "${green}${b}✓${n} Removed $SLEEP_HOOK"
+        else
+            echo "Installing wakeup source hook..."
+            sudo mkdir -p "$(dirname "$SLEEP_HOOK")"
+            sudo tee "$SLEEP_HOOK" > /dev/null << 'HOOK'
     #!/usr/bin/bash
     # Disable touchpad and lid as wakeup sources before suspend
     # These devices generate spurious wakeup events that block S0ix deep sleep
@@ -507,12 +593,31 @@ fix-sleep:
             ;;
     esac
     HOOK
-        sudo chmod 755 "$SLEEP_HOOK"
-        echo "${green}${b}✓${n} Installed $SLEEP_HOOK"
-    fi
-    echo ""
+            sudo chmod 755 "$SLEEP_HOOK"
+            echo "${green}${b}✓${n} Installed $SLEEP_HOOK"
+        fi
+    }
 
-    if [[ "$NEEDS_REBOOT" == true ]]; then
+    # Main menu loop
+    while true; do
+        show_status
+
+        ACTION=$(choose_menu "Select an option:" \
+            "Toggle RTC ACPI alarm" \
+            "Change PCIe ASPM policy" \
+            "Toggle wakeup source hook" \
+            "Done")
+
+        case "$ACTION" in
+            "Toggle RTC ACPI alarm") toggle_rtc ;;
+            "Change PCIe ASPM policy") change_aspm ;;
+            "Toggle wakeup source hook") toggle_wakeup_hook ;;
+            "Done"|"") break ;;
+        esac
+        echo ""
+    done
+
+    if [[ "$KARGS_CHANGED" == true ]]; then
         echo "${yellow}A reboot is required for kernel parameter changes to take effect.${n}"
         echo ""
         read -p "Reboot now? [y/N]: " reboot_confirm
@@ -521,11 +626,9 @@ fix-sleep:
         else
             echo "Please reboot when convenient: ${b}systemctl reboot${n}"
         fi
-    else
-        echo "No kernel parameter changes needed — everything is already configured."
     fi
 
-# Apply AMD GPU workarounds for Framework laptops (ring buffer crash fix)
+# Manage AMD GPU workarounds for Framework laptops (ring buffer crash fix)
 [group('Rocinante')]
 fix-amdgpu:
     #!/usr/bin/env bash
@@ -536,39 +639,86 @@ fix-amdgpu:
     green=$(tput setaf 2 2>/dev/null) || green=""
     yellow=$(tput setaf 3 2>/dev/null) || yellow=""
 
-    echo "${b}AMD GPU Workaround (Framework / Ryzen APU)${n}"
-    echo ""
-    echo "This adds kernel parameters to fix amdgpu ring buffer crashes:"
-    echo "  - amdgpu.dcdebugmask=0x10  (disable PSR / Panel Self-Refresh)"
-    echo "  - amdgpu.sg_display=0      (disable scatter/gather display)"
-    echo ""
-    echo "Reference: https://community.frame.work/t/solved-amdgpu-driver-crash-during-high-loads/59741"
-    echo ""
+    KARGS_CHANGED=false
 
-    CURRENT_KARGS=$(rpm-ostree kargs 2>/dev/null || echo "")
-    NEEDS_REBOOT=false
+    show_status() {
+        CURRENT_KARGS=$(rpm-ostree kargs 2>/dev/null || echo "")
 
-    if echo "$CURRENT_KARGS" | grep -q "amdgpu.dcdebugmask=0x10"; then
-        echo "${green}${b}✓${n} amdgpu.dcdebugmask=0x10 already set"
-    else
-        echo "Adding ${b}amdgpu.dcdebugmask=0x10${n}..."
-        sudo rpm-ostree kargs --append-if-missing="amdgpu.dcdebugmask=0x10"
-        NEEDS_REBOOT=true
-        echo "${green}${b}✓${n} Added amdgpu.dcdebugmask=0x10"
-    fi
+        echo "${b}AMD GPU Fixes (Framework / Ryzen APU)${n}"
+        echo ""
 
-    if echo "$CURRENT_KARGS" | grep -q "amdgpu.sg_display=0"; then
-        echo "${green}${b}✓${n} amdgpu.sg_display=0 already set"
-    else
-        echo "Adding ${b}amdgpu.sg_display=0${n}..."
-        sudo rpm-ostree kargs --append-if-missing="amdgpu.sg_display=0"
-        NEEDS_REBOOT=true
-        echo "${green}${b}✓${n} Added amdgpu.sg_display=0"
-    fi
+        if echo "$CURRENT_KARGS" | grep -q "amdgpu.dcdebugmask=0x10"; then
+            echo "  PSR disable:              ${green}${b}✓${n} applied (dcdebugmask=0x10)"
+        else
+            echo "  PSR disable:              · not applied"
+        fi
 
-    echo ""
+        if echo "$CURRENT_KARGS" | grep -q "amdgpu.sg_display=0"; then
+            echo "  Scatter/gather disable:   ${green}${b}✓${n} applied (sg_display=0)"
+        else
+            echo "  Scatter/gather disable:   · not applied"
+        fi
+        echo ""
+    }
 
-    if [[ "$NEEDS_REBOOT" == true ]]; then
+    choose_menu() {
+        local prompt="$1"
+        shift
+        local options=("$@")
+        if command -v gum &> /dev/null; then
+            gum choose --header "$prompt" "${options[@]}"
+        else
+            echo "$prompt" >&2
+            local i=1
+            for opt in "${options[@]}"; do
+                echo "  ${i}) ${opt}" >&2
+                ((i++))
+            done
+            echo "" >&2
+            read -p "Choice [1-${#options[@]}]: " choice
+            if [[ "$choice" -ge 1 && "$choice" -le "${#options[@]}" ]] 2>/dev/null; then
+                echo "${options[$((choice-1))]}"
+            else
+                echo ""
+            fi
+        fi
+    }
+
+    toggle_karg() {
+        local param="$1"
+        local label="$2"
+        CURRENT_KARGS=$(rpm-ostree kargs 2>/dev/null || echo "")
+        if echo "$CURRENT_KARGS" | grep -q "${param}"; then
+            echo "Removing ${b}${param}${n}..."
+            sudo rpm-ostree kargs --delete-if-present="${param}"
+            KARGS_CHANGED=true
+            echo "${green}${b}✓${n} Removed ${label}"
+        else
+            echo "Adding ${b}${param}${n}..."
+            sudo rpm-ostree kargs --append-if-missing="${param}"
+            KARGS_CHANGED=true
+            echo "${green}${b}✓${n} Added ${label}"
+        fi
+    }
+
+    # Main menu loop
+    while true; do
+        show_status
+
+        ACTION=$(choose_menu "Select an option:" \
+            "Toggle PSR disable (dcdebugmask)" \
+            "Toggle scatter/gather disable" \
+            "Done")
+
+        case "$ACTION" in
+            "Toggle PSR disable (dcdebugmask)") toggle_karg "amdgpu.dcdebugmask=0x10" "PSR disable" ;;
+            "Toggle scatter/gather disable") toggle_karg "amdgpu.sg_display=0" "scatter/gather disable" ;;
+            "Done"|"") break ;;
+        esac
+        echo ""
+    done
+
+    if [[ "$KARGS_CHANGED" == true ]]; then
         echo "${yellow}A reboot is required for changes to take effect.${n}"
         echo ""
         read -p "Reboot now? [y/N]: " reboot_confirm
@@ -577,8 +727,6 @@ fix-amdgpu:
         else
             echo "Please reboot when convenient: ${b}systemctl reboot${n}"
         fi
-    else
-        echo "No changes needed — workarounds already applied."
     fi
 
 # Diagnose sleep/suspend issues on Framework 13 AMD
