@@ -11,7 +11,7 @@ KOJI_BASE="https://kojipkgs.fedoraproject.org/packages/linux-firmware/${FIRMWARE
 
 echo "::group:: Override linux-firmware to ${FIRMWARE_VERSION}"
 echo "Removing existing linux-firmware packages..."
-dnf5 -y remove linux-firmware\* || true
+dnf5 -y remove linux-firmware\* || echo "WARNING: dnf5 remove exited $?, continuing..."
 
 echo "Installing linux-firmware ${FIRMWARE_RELEASE} from Koji..."
 dnf5 -y install \
