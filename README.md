@@ -76,6 +76,7 @@ Individual recipes:
 - [1Password + Flatpak Browsers](docs/1password-flatpak-fix.md)
 - [YubiKey + Fingerprint Auth](docs/yubikey-1password-authentication.md)
 - [AMD GPU Strix Point Workaround](docs/amdgpu-strix-point-gpu-hang.md)
+- [Sleep/Suspend Setup (Framework 13 AMD)](docs/sleep-suspend-setup.md)
 
 ## Building
 
