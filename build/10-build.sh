@@ -17,6 +17,16 @@ mkdir -p /usr/share/ublue-os/homebrew/
 cp /ctx/custom/brew/*.Brewfile /usr/share/ublue-os/homebrew/
 # Ujust recipes → 60-custom.just (bluefin's 00-entry.just imports this)
 find /ctx/custom/ujust -iname '*.just' -exec printf "\n\n" \; -exec cat {} \; >> /usr/share/ublue-os/just/60-custom.just
+# Udev rules
+if [ -d /ctx/custom/udev ]; then
+    echo ":: Installing custom udev rules"
+    cp /ctx/custom/udev/*.rules /etc/udev/rules.d/
+fi
+# Systemd sleep hooks
+if [ -d /ctx/custom/systemd/system-sleep ]; then
+    echo ":: Installing systemd sleep hooks"
+    install -m 0755 /ctx/custom/systemd/system-sleep/*.sh /usr/lib/systemd/system-sleep/
+fi
 echo "::endgroup::"
 
 echo "::group:: Install Packages"
