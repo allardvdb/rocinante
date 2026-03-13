@@ -448,7 +448,6 @@ fix-sleep:
     n=$(tput sgr0 2>/dev/null) || n=""
     green=$(tput setaf 2 2>/dev/null) || green=""
     yellow=$(tput setaf 3 2>/dev/null) || yellow=""
-    red=$(tput setaf 1 2>/dev/null) || red=""
 
     SLEEP_HOOK="/etc/systemd/system-sleep/50-disable-wakeup-sources.sh"
     ASPM_VALUES=("default" "performance" "powersave" "powersupersave")
