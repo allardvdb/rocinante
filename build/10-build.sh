@@ -27,6 +27,9 @@ if [ -d /ctx/custom/systemd/system-sleep ]; then
     echo ":: Installing systemd sleep hooks"
     install -m 0755 /ctx/custom/systemd/system-sleep/*.sh /usr/lib/systemd/system-sleep/
 fi
+# SKILL.md → /usr/share/rocinante/ (AI agent context for running system)
+mkdir -p /usr/share/rocinante
+cp /ctx/SKILL.md /usr/share/rocinante/SKILL.md
 echo "::endgroup::"
 
 echo "::group:: Install Packages"

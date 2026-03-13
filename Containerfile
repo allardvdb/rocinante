@@ -3,6 +3,7 @@ ARG BASE_IMAGE=ghcr.io/ublue-os/bluefin:stable
 FROM scratch AS ctx
 COPY build /build
 COPY custom /custom
+COPY SKILL.md /SKILL.md
 COPY --from=ghcr.io/ublue-os/brew:latest /system_files /oci/brew
 
 FROM ${BASE_IMAGE}
