@@ -629,7 +629,7 @@ fix-sleep:
         fi
     fi
 
-# Apply AMD GPU workarounds for Framework laptops (ring buffer crash fix)
+# Manage AMD GPU workarounds for Framework laptops (ring buffer crash fix)
 [group('Rocinante')]
 fix-amdgpu:
     #!/usr/bin/env bash
@@ -640,39 +640,86 @@ fix-amdgpu:
     green=$(tput setaf 2 2>/dev/null) || green=""
     yellow=$(tput setaf 3 2>/dev/null) || yellow=""
 
-    echo "${b}AMD GPU Workaround (Framework / Ryzen APU)${n}"
-    echo ""
-    echo "This adds kernel parameters to fix amdgpu ring buffer crashes:"
-    echo "  - amdgpu.dcdebugmask=0x10  (disable PSR / Panel Self-Refresh)"
-    echo "  - amdgpu.sg_display=0      (disable scatter/gather display)"
-    echo ""
-    echo "Reference: https://community.frame.work/t/solved-amdgpu-driver-crash-during-high-loads/59741"
-    echo ""
+    KARGS_CHANGED=false
 
-    CURRENT_KARGS=$(rpm-ostree kargs 2>/dev/null || echo "")
-    NEEDS_REBOOT=false
+    show_status() {
+        CURRENT_KARGS=$(rpm-ostree kargs 2>/dev/null || echo "")
 
-    if echo "$CURRENT_KARGS" | grep -q "amdgpu.dcdebugmask=0x10"; then
-        echo "${green}${b}✓${n} amdgpu.dcdebugmask=0x10 already set"
-    else
-        echo "Adding ${b}amdgpu.dcdebugmask=0x10${n}..."
-        sudo rpm-ostree kargs --append-if-missing="amdgpu.dcdebugmask=0x10"
-        NEEDS_REBOOT=true
-        echo "${green}${b}✓${n} Added amdgpu.dcdebugmask=0x10"
-    fi
+        echo "${b}AMD GPU Fixes (Framework / Ryzen APU)${n}"
+        echo ""
 
-    if echo "$CURRENT_KARGS" | grep -q "amdgpu.sg_display=0"; then
-        echo "${green}${b}✓${n} amdgpu.sg_display=0 already set"
-    else
-        echo "Adding ${b}amdgpu.sg_display=0${n}..."
-        sudo rpm-ostree kargs --append-if-missing="amdgpu.sg_display=0"
-        NEEDS_REBOOT=true
-        echo "${green}${b}✓${n} Added amdgpu.sg_display=0"
-    fi
+        if echo "$CURRENT_KARGS" | grep -q "amdgpu.dcdebugmask=0x10"; then
+            echo "  PSR disable:              ${green}${b}✓${n} applied (dcdebugmask=0x10)"
+        else
+            echo "  PSR disable:              · not applied"
+        fi
 
-    echo ""
+        if echo "$CURRENT_KARGS" | grep -q "amdgpu.sg_display=0"; then
+            echo "  Scatter/gather disable:   ${green}${b}✓${n} applied (sg_display=0)"
+        else
+            echo "  Scatter/gather disable:   · not applied"
+        fi
+        echo ""
+    }
 
-    if [[ "$NEEDS_REBOOT" == true ]]; then
+    choose_menu() {
+        local prompt="$1"
+        shift
+        local options=("$@")
+        if command -v gum &> /dev/null; then
+            gum choose --header "$prompt" "${options[@]}"
+        else
+            echo "$prompt" >&2
+            local i=1
+            for opt in "${options[@]}"; do
+                echo "  ${i}) ${opt}" >&2
+                ((i++))
+            done
+            echo "" >&2
+            read -p "Choice [1-${#options[@]}]: " choice
+            if [[ "$choice" -ge 1 && "$choice" -le "${#options[@]}" ]] 2>/dev/null; then
+                echo "${options[$((choice-1))]}"
+            else
+                echo ""
+            fi
+        fi
+    }
+
+    toggle_karg() {
+        local param="$1"
+        local label="$2"
+        CURRENT_KARGS=$(rpm-ostree kargs 2>/dev/null || echo "")
+        if echo "$CURRENT_KARGS" | grep -q "${param}"; then
+            echo "Removing ${b}${param}${n}..."
+            sudo rpm-ostree kargs --delete-if-present="${param}"
+            KARGS_CHANGED=true
+            echo "${green}${b}✓${n} Removed ${label}"
+        else
+            echo "Adding ${b}${param}${n}..."
+            sudo rpm-ostree kargs --append-if-missing="${param}"
+            KARGS_CHANGED=true
+            echo "${green}${b}✓${n} Added ${label}"
+        fi
+    }
+
+    # Main menu loop
+    while true; do
+        show_status
+
+        ACTION=$(choose_menu "Select an option:" \
+            "Toggle PSR disable (dcdebugmask)" \
+            "Toggle scatter/gather disable" \
+            "Done")
+
+        case "$ACTION" in
+            "Toggle PSR disable (dcdebugmask)") toggle_karg "amdgpu.dcdebugmask=0x10" "PSR disable" ;;
+            "Toggle scatter/gather disable") toggle_karg "amdgpu.sg_display=0" "scatter/gather disable" ;;
+            "Done"|"") break ;;
+        esac
+        echo ""
+    done
+
+    if [[ "$KARGS_CHANGED" == true ]]; then
         echo "${yellow}A reboot is required for changes to take effect.${n}"
         echo ""
         read -p "Reboot now? [y/N]: " reboot_confirm
@@ -681,8 +728,6 @@ fix-amdgpu:
         else
             echo "Please reboot when convenient: ${b}systemctl reboot${n}"
         fi
-    else
-        echo "No changes needed — workarounds already applied."
     fi
 
 # Diagnose sleep/suspend issues on Framework 13 AMD
