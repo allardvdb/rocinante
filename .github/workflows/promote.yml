@@ -1,0 +1,95 @@
+---
+name: Promote release stream
+on:
+  release:
+    types: [published]
+
+env:
+  IMAGE_REGISTRY: ghcr.io/allardvdb
+
+jobs:
+  promote:
+    name: Promote ${{ matrix.image_name }} to ${{ github.event.release.prerelease && 'testing' || 'stable' }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        image_name:
+          - rocinante
+          - rocinante-nvidia
+          - rocinante-aurora
+
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Determine stream and date
+        id: meta
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
+          IS_PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            STREAM="testing"
+          else
+            STREAM="stable"
+          fi
+
+          # Extract date from tag name (e.g., stable-20260311 → 20260311)
+          DATE="${TAG_NAME##*-}"
+          if [[ ! "$DATE" =~ ^[0-9]{8}$ ]]; then
+            echo "::error::Tag name must end with a date (YYYYMMDD), got: $TAG_NAME"
+            exit 1
+          fi
+
+          echo "stream=$STREAM" >> "$GITHUB_OUTPUT"
+          echo "date=$DATE" >> "$GITHUB_OUTPUT"
+          echo "Promoting latest.$DATE → $STREAM / $STREAM.$DATE"
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install skopeo
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq skopeo
+
+      - name: Retag image
+        env:
+          IMAGE: ${{ env.IMAGE_REGISTRY }}/${{ matrix.image_name }}
+          STREAM: ${{ steps.meta.outputs.stream }}
+          DATE: ${{ steps.meta.outputs.date }}
+        run: |
+          SOURCE="docker://${IMAGE}:latest.${DATE}"
+          echo "Source: $SOURCE"
+
+          # Copy to mutable stream tag
+          skopeo copy --retry-times 3 "$SOURCE" "docker://${IMAGE}:${STREAM}"
+          echo "Tagged ${IMAGE}:${STREAM}"
+
+          # Copy to immutable date-pinned stream tag
+          skopeo copy --retry-times 3 "$SOURCE" "docker://${IMAGE}:${STREAM}.${DATE}"
+          echo "Tagged ${IMAGE}:${STREAM}.${DATE}"
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
+        with:
+          cosign-release: 'v2.6.1'
+
+      - name: Sign promoted tags
+        env:
+          IMAGE: ${{ env.IMAGE_REGISTRY }}/${{ matrix.image_name }}
+          STREAM: ${{ steps.meta.outputs.stream }}
+          DATE: ${{ steps.meta.outputs.date }}
+          COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
+        run: |
+          for tag in "${STREAM}" "${STREAM}.${DATE}"; do
+            cosign sign -y --key env://COSIGN_PRIVATE_KEY "${IMAGE}:${tag}"
+            echo "Signed ${IMAGE}:${tag}"
+          done
