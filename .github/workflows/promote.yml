@@ -69,12 +69,13 @@ jobs:
           SOURCE="docker://${IMAGE}:latest.${DATE}"
           echo "Source: $SOURCE"
 
-          # Copy to mutable stream tag
-          skopeo copy --retry-times 3 "$SOURCE" "docker://${IMAGE}:${STREAM}"
+          # Copy to mutable stream tag (--all preserves manifests and layer digests
+          # so bootc recognizes shared layers and avoids re-downloading)
+          skopeo copy --all --retry-times 3 "$SOURCE" "docker://${IMAGE}:${STREAM}"
           echo "Tagged ${IMAGE}:${STREAM}"
 
           # Copy to immutable date-pinned stream tag
-          skopeo copy --retry-times 3 "$SOURCE" "docker://${IMAGE}:${STREAM}.${DATE}"
+          skopeo copy --all --retry-times 3 "$SOURCE" "docker://${IMAGE}:${STREAM}.${DATE}"
           echo "Tagged ${IMAGE}:${STREAM}.${DATE}"
 
       - name: Install Cosign
