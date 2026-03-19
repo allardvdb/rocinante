@@ -17,6 +17,40 @@ sudo bootc switch ghcr.io/allardvdb/rocinante-nvidia
 sudo bootc switch ghcr.io/allardvdb/rocinante-aurora
 ```
 
+## Release Streams
+
+Images are published in three release streams:
+
+| Stream | Tag | Purpose |
+|--------|-----|---------|
+| `stable` | `:stable` | Daily drivers — manually promoted via GitHub Release |
+| `testing` | `:testing` | Pre-release soak — promoted via GitHub pre-release |
+| `latest` | `:latest` | Bleeding edge — every push to main and daily cron |
+
+Each stream also has date-pinned tags (e.g., `:stable.20260311`) for rollback.
+
+### Switching streams
+
+```bash
+ujust switch-stream
+```
+
+Or manually:
+
+```bash
+sudo bootc switch ghcr.io/allardvdb/rocinante:stable --enforce-container-sigpolicy
+```
+
+### Image references
+
+```
+ghcr.io/allardvdb/rocinante:stable
+ghcr.io/allardvdb/rocinante-nvidia:stable
+ghcr.io/allardvdb/rocinante-aurora:stable
+```
+
+Replace `:stable` with `:testing` or `:latest` as needed.
+
 ## First-Time Setup
 
 ```bash
@@ -24,6 +58,7 @@ ujust first-run
 ```
 
 Individual recipes:
+- `ujust switch-stream` — Switch between stable/testing/latest release streams
 - `ujust setup-1password-browser` — Flatpak browser integration
 - `ujust setup-yubikey-ssh` — YubiKey SSH authentication
 - `ujust enable-yubikey-gpg` — Prepare shell for GPG operations with YubiKey 5

@@ -1,5 +1,88 @@
 # Rocinante custom ujust recipes
 
+# Switch between release streams (stable, testing, latest)
+[group('Rocinante')]
+switch-stream:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Terminal formatting
+    b=$(tput bold 2>/dev/null) || b=""
+    n=$(tput sgr0 2>/dev/null) || n=""
+    green=$(tput setaf 2 2>/dev/null) || green=""
+
+    # Detect current image and tag from bootc status
+    BOOTC_JSON=$(bootc status --json 2>/dev/null)
+    CURRENT_IMAGE=$(echo "$BOOTC_JSON" | jq -r '.spec.image.image // empty')
+    if [[ -z "$CURRENT_IMAGE" ]]; then
+        echo "Error: Could not detect current image from bootc status"
+        exit 1
+    fi
+
+    # Split into base and tag
+    IMAGE_BASE="${CURRENT_IMAGE%%:*}"
+    CURRENT_TAG="${CURRENT_IMAGE##*:}"
+    if [[ "$CURRENT_TAG" == "$CURRENT_IMAGE" ]]; then
+        CURRENT_TAG="latest"
+    fi
+
+    # Determine current stream from tag
+    CURRENT_STREAM="$CURRENT_TAG"
+    # Strip date suffix if present (e.g., stable.20260311 → stable)
+    CURRENT_STREAM="${CURRENT_STREAM%%.*}"
+
+    echo "${b}Release Stream Switcher${n}"
+    echo ""
+    echo "  Image:   ${IMAGE_BASE}"
+    echo "  Current: ${CURRENT_TAG} (stream: ${CURRENT_STREAM})"
+    echo ""
+
+    # Present stream menu
+    STREAMS=("stable" "testing" "latest")
+    if command -v gum &> /dev/null; then
+        SELECTED=$(gum choose --header "Select stream:" "${STREAMS[@]}")
+    else
+        echo "Select stream:"
+        echo "  1) stable   — Daily drivers, manually promoted"
+        echo "  2) testing  — Pre-release soak"
+        echo "  3) latest   — Bleeding edge, every build"
+        echo ""
+        read -p "Choice [1-3]: " choice
+        case "$choice" in
+            1) SELECTED="stable" ;;
+            2) SELECTED="testing" ;;
+            3) SELECTED="latest" ;;
+            *) echo "Invalid choice"; exit 1 ;;
+        esac
+    fi
+
+    if [[ -z "$SELECTED" ]]; then
+        exit 0
+    fi
+
+    # No-op guard
+    if [[ "$CURRENT_STREAM" == "$SELECTED" ]]; then
+        echo ""
+        echo "${green}Already on the ${b}${SELECTED}${n}${green} stream — nothing to do.${n}"
+        exit 0
+    fi
+
+    TARGET="${IMAGE_BASE}:${SELECTED}"
+    echo ""
+    echo "Switching: ${CURRENT_TAG} → ${b}${SELECTED}${n}"
+    echo "  ${TARGET}"
+    echo ""
+    read -p "Continue? [Y/n]: " confirm
+    if [[ "$confirm" =~ ^[Nn]$ ]]; then
+        echo "Cancelled."
+        exit 0
+    fi
+
+    sudo bootc switch "${TARGET}" --enforce-container-sigpolicy
+
+    echo ""
+    echo "${green}${b}Switched to ${SELECTED} stream.${n}"
+    echo "Reboot to apply: ${b}systemctl reboot${n}"
+
 # Configure YubiKey for SSH and git signing using FIDO2 (works with Bio and 5)
 [group('Rocinante')]
 setup-yubikey-ssh:
