@@ -15,6 +15,8 @@ echo "::group:: Copy Custom Files"
 # Brewfiles
 mkdir -p /usr/share/ublue-os/homebrew/
 cp /ctx/custom/brew/*.Brewfile /usr/share/ublue-os/homebrew/
+# Remove upstream switch-stream aliases that conflict with our custom recipe
+sed -i '/^alias switch-stream/d' /usr/share/ublue-os/just/system.just
 # Ujust recipes → 60-custom.just (bluefin's 00-entry.just imports this)
 find /ctx/custom/ujust -iname '*.just' -exec printf "\n\n" \; -exec cat {} \; >> /usr/share/ublue-os/just/60-custom.just
 # Udev rules
