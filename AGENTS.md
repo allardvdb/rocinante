@@ -109,6 +109,8 @@ All variants share the same build scripts and customizations. The Containerfile 
 - `build/50-firmware.sh` pins `linux-firmware` to a known-good version from Koji
 - Fixes S0ix regression introduced in `linux-firmware-20260221` on AMD Strix Point
 - Version controlled via `FIRMWARE_VERSION` build arg in Containerfile
+- Dynamically discovers ALL installed firmware sub-packages before removal and reinstalls them all at the pinned version, preserving firmware for all hardware (Intel WiFi, Broadcom, MediaTek, AMD, etc.)
+- Validates Koji URLs before removing packages to fail early on package renames or missing versions
 
 ### Sleep/Suspend Fixes (Framework 13 AMD)
 - Goodix fingerprint reader disabled via udev rule (`custom/udev/99-disable-goodix-fingerprint.rules`)
