@@ -1694,7 +1694,20 @@ setup-hibernate:
 
     MEM_KB=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
     MEM_GB=$(( MEM_KB / 1024 / 1024 ))
-    echo "  RAM: ${MEM_GB}GB — swapfile will be ${MEM_GB}GB"
+    SWAP_GB=$MEM_GB
+    echo "  RAM: ${MEM_GB}GB (minimum swap size for hibernation)"
+    echo ""
+    read -p "Swap size in GB [${SWAP_GB}]: " custom_size
+    if [[ -n "$custom_size" ]]; then
+        if [[ "$custom_size" -ge "$MEM_GB" ]] 2>/dev/null; then
+            SWAP_GB=$custom_size
+        else
+            echo "${red}${b}Error:${n} Swap must be at least ${MEM_GB}GB (your RAM size)."
+            exit 1
+        fi
+    fi
+    SWAP_KB=$(( SWAP_GB * 1024 * 1024 ))
+    echo "  Swapfile size: ${SWAP_GB}GB"
     echo ""
     read -p "Proceed with setup? [Y/n]: " confirm
     if [[ "$confirm" =~ ^[Nn]$ ]]; then
@@ -1707,8 +1720,8 @@ setup-hibernate:
     echo "${cyan}Step 1: Create swap subvolume and swapfile${n}"
     sudo btrfs subvolume create /var/swap
     sudo chattr +C /var/swap
-    sudo btrfs filesystem mkswapfile --size "${MEM_KB}k" --uuid clear /var/swap/swapfile
-    echo "${green}${b}✓${n} Created /var/swap/swapfile (${MEM_GB}GB)"
+    sudo btrfs filesystem mkswapfile --size "${SWAP_KB}k" --uuid clear /var/swap/swapfile
+    echo "${green}${b}✓${n} Created /var/swap/swapfile (${SWAP_GB}GB)"
     echo ""
 
     # Step 2: SELinux labeling
@@ -1784,7 +1797,7 @@ setup-hibernate:
     echo "${green}${b}Setup complete!${n}"
     echo ""
     echo "${b}What was configured:${n}"
-    echo "  • Swapfile: /var/swap/swapfile (${MEM_GB}GB)"
+    echo "  • Swapfile: /var/swap/swapfile (${SWAP_GB}GB)"
     echo "  • Kernel: resume=UUID=${RESUME_UUID} resume_offset=${RESUME_OFFSET}"
     echo "  • Dracut: resume module enabled"
     echo "  • Sleep: suspend-then-hibernate with 30 minute delay"
