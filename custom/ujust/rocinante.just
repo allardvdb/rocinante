@@ -778,6 +778,12 @@ fix-amdgpu:
         else
             echo "  Scatter/gather disable:   · not applied"
         fi
+
+        if echo "$CURRENT_KARGS" | grep -q "amdgpu.ip_block_mask=0xfffff7ff"; then
+            echo "  VPE disable:              ${green}${b}✓${n} applied (ip_block_mask)"
+        else
+            echo "  VPE disable:              · not applied"
+        fi
         echo ""
     }
 
@@ -828,11 +834,13 @@ fix-amdgpu:
         ACTION=$(choose_menu "Select an option:" \
             "Toggle PSR disable (dcdebugmask)" \
             "Toggle scatter/gather disable" \
+            "Toggle VPE disable (hibernate fix)" \
             "Done")
 
         case "$ACTION" in
             "Toggle PSR disable (dcdebugmask)") toggle_karg "amdgpu.dcdebugmask=0x10" "PSR disable" ;;
             "Toggle scatter/gather disable") toggle_karg "amdgpu.sg_display=0" "scatter/gather disable" ;;
+            "Toggle VPE disable (hibernate fix)") toggle_karg "amdgpu.ip_block_mask=0xfffff7ff" "VPE disable" ;;
             "Done"|"") break ;;
         esac
         echo ""
@@ -1724,14 +1732,42 @@ setup-hibernate:
     echo "${green}${b}✓${n} Created /var/swap/swapfile (${SWAP_GB}GB)"
     echo ""
 
-    # Step 2: SELinux labeling
-    echo "${cyan}Step 2: SELinux labeling${n}"
+    # Step 2: SELinux labeling and policy
+    echo "${cyan}Step 2: SELinux labeling and policy${n}"
     if command -v semanage &>/dev/null; then
         sudo semanage fcontext -a -t swapfile_t '/var/swap(/.*)?' 2>/dev/null || true
         sudo restorecon -RF /var/swap
         echo "${green}${b}✓${n} SELinux context set (swapfile_t)"
     else
         echo "${yellow}·${n} semanage not available, skipping SELinux labeling"
+    fi
+    # Create SELinux policy allowing logind and systemd-sleep to access the swap directory
+    if command -v checkmodule &>/dev/null; then
+        POLICY_DIR=$(mktemp -d)
+        cat > "${POLICY_DIR}/systemd_hibernate.te" << 'SELINUXPOLICY'
+    module systemd_hibernate 1.0;
+
+    require {
+        type systemd_logind_t;
+        type systemd_sleep_t;
+        type swapfile_t;
+        class dir { search getattr open read };
+        class file { getattr open read };
+    };
+
+    allow systemd_logind_t swapfile_t:dir { search getattr open read };
+    allow systemd_sleep_t swapfile_t:dir { search getattr open read };
+    allow systemd_sleep_t swapfile_t:file { getattr open read };
+    SELINUXPOLICY
+        sudo checkmodule -M -m -o "${POLICY_DIR}/systemd_hibernate.mod" "${POLICY_DIR}/systemd_hibernate.te" 2>/dev/null
+        sudo semodule_package -o "${POLICY_DIR}/systemd_hibernate.pp" -m "${POLICY_DIR}/systemd_hibernate.mod" 2>/dev/null
+        sudo semodule -i "${POLICY_DIR}/systemd_hibernate.pp" 2>/dev/null
+        rm -rf "${POLICY_DIR}"
+        echo "${green}${b}✓${n} SELinux policy installed (systemd_hibernate)"
+    else
+        echo "${yellow}·${n} SELinux policy tools not available, you may need to run:"
+        echo "     sudo ausearch -m avc -ts recent | sudo audit2allow -M systemd_hibernate"
+        echo "     sudo semodule -i systemd_hibernate.pp"
     fi
     echo ""
 
@@ -1789,7 +1825,7 @@ setup-hibernate:
     HandleLidSwitch=suspend-then-hibernate
     HandleLidSwitchExternalPower=suspend-then-hibernate
     LOGINDCONF
-    sudo systemctl restart systemd-logind
+    sudo systemctl kill -s HUP systemd-logind
     echo "${green}${b}✓${n} Logind configured for suspend-then-hibernate on lid close"
     echo ""
 
@@ -1852,7 +1888,7 @@ remove-hibernate:
     # Remove logind config
     if [[ -f /etc/systemd/logind.conf.d/hibernate.conf ]]; then
         sudo rm -f /etc/systemd/logind.conf.d/hibernate.conf
-        sudo systemctl restart systemd-logind
+        sudo systemctl kill -s HUP systemd-logind
         echo "${green}${b}✓${n} Removed logind hibernate config"
     fi
 
