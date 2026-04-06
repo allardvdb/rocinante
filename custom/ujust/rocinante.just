@@ -569,6 +569,14 @@ fix-sleep:
         else
             echo "  Wakeup source hook:  · not installed"
         fi
+
+        # Hibernate status
+        if [[ -f /etc/systemd/sleep.conf.d/hibernate.conf ]]; then
+            HDELAY=$(grep "HibernateDelaySec" /etc/systemd/sleep.conf.d/hibernate.conf 2>/dev/null | cut -d= -f2 || echo "?")
+            echo "  Hibernate delay:     ${green}${b}✓${n} ${HDELAY}"
+        else
+            echo "  Hibernate delay:     · not configured"
+        fi
         echo ""
     }
 
@@ -681,6 +689,33 @@ fix-sleep:
         fi
     }
 
+    change_hibernate_delay() {
+        local HIBERNATE_CONF="/etc/systemd/sleep.conf.d/hibernate.conf"
+        if [[ ! -f "$HIBERNATE_CONF" ]]; then
+            echo "${yellow}Hibernate is not configured. Run ${b}ujust setup-hibernate${n}${yellow} first.${n}"
+            return
+        fi
+
+        CURRENT_DELAY=$(grep "HibernateDelaySec" "$HIBERNATE_CONF" 2>/dev/null | cut -d= -f2 || echo "unknown")
+        echo "Current hibernate delay: ${b}${CURRENT_DELAY}${n}"
+        echo ""
+
+        DELAY=$(choose_menu "Select hibernate delay:" \
+            "15min" "30min" "1h" "2h" "3h")
+
+        if [[ -z "$DELAY" ]]; then
+            return
+        fi
+
+        sudo tee "$HIBERNATE_CONF" > /dev/null << DELAYEOF
+    [Sleep]
+    AllowSuspendThenHibernate=yes
+    HibernateDelaySec=${DELAY}
+    DELAYEOF
+        echo "${green}${b}✓${n} Hibernate delay set to ${DELAY}"
+        echo "  Takes effect on next suspend (no reboot needed)"
+    }
+
     # Main menu loop
     while true; do
         show_status
@@ -689,12 +724,14 @@ fix-sleep:
             "Toggle RTC ACPI alarm" \
             "Change PCIe ASPM policy" \
             "Toggle wakeup source hook" \
+            "Change hibernate delay" \
             "Done")
 
         case "$ACTION" in
             "Toggle RTC ACPI alarm") toggle_rtc ;;
             "Change PCIe ASPM policy") change_aspm ;;
             "Toggle wakeup source hook") toggle_wakeup_hook ;;
+            "Change hibernate delay") change_hibernate_delay ;;
             "Done"|"") break ;;
         esac
         echo ""
@@ -1613,3 +1650,270 @@ setup-borgmatic:
     echo ""
     echo "  Timer status: ${b}systemctl --user status borgmatic.timer${n}"
     echo "  Manual run:   ${b}systemctl --user start borgmatic.service${n}"
+
+# Set up suspend-then-hibernate (macOS-style sleep)
+[group('Rocinante')]
+setup-hibernate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    b=$(tput bold 2>/dev/null) || b=""
+    n=$(tput sgr0 2>/dev/null) || n=""
+    green=$(tput setaf 2 2>/dev/null) || green=""
+    yellow=$(tput setaf 3 2>/dev/null) || yellow=""
+    red=$(tput setaf 1 2>/dev/null) || red=""
+    cyan=$(tput setaf 6 2>/dev/null) || cyan=""
+
+    echo "${b}Suspend-then-Hibernate Setup${n}"
+    echo ""
+    echo "This sets up macOS-style sleep: suspend to RAM for 30 minutes,"
+    echo "then hibernate to disk for zero battery drain."
+    echo ""
+
+    # Pre-flight checks
+    if grep -q '\[disabled\]' /sys/power/disk 2>/dev/null; then
+        echo "${red}${b}Error:${n} Hibernate is disabled by the kernel."
+        echo "This usually means Secure Boot is enabled. Disable it in BIOS first."
+        exit 1
+    fi
+
+    if [[ -f /var/swap/swapfile ]]; then
+        echo "${yellow}${b}Warning:${n} Hibernate appears already configured (/var/swap/swapfile exists)."
+        echo "Run ${b}ujust remove-hibernate${n} first to reconfigure."
+        exit 1
+    fi
+
+    if [[ -f /etc/systemd/logind.conf.d/no-suspend.conf ]]; then
+        echo "${yellow}${b}Warning:${n} Suspend is currently disabled (no-suspend.conf)."
+        echo "Hibernate requires suspend. Run ${b}ujust toggle-suspend${n} to re-enable it first."
+        echo ""
+        read -p "Continue anyway? [y/N]: " confirm
+        if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+            exit 0
+        fi
+    fi
+
+    MEM_KB=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+    MEM_GB=$(( MEM_KB / 1024 / 1024 ))
+    echo "  RAM: ${MEM_GB}GB — swapfile will be ${MEM_GB}GB"
+    echo ""
+    read -p "Proceed with setup? [Y/n]: " confirm
+    if [[ "$confirm" =~ ^[Nn]$ ]]; then
+        echo "Cancelled."
+        exit 0
+    fi
+    echo ""
+
+    # Step 1: Create btrfs swap subvolume + swapfile
+    echo "${cyan}Step 1: Create swap subvolume and swapfile${n}"
+    sudo btrfs subvolume create /var/swap
+    sudo chattr +C /var/swap
+    sudo btrfs filesystem mkswapfile --size "${MEM_KB}k" --uuid clear /var/swap/swapfile
+    echo "${green}${b}✓${n} Created /var/swap/swapfile (${MEM_GB}GB)"
+    echo ""
+
+    # Step 2: SELinux labeling
+    echo "${cyan}Step 2: SELinux labeling${n}"
+    if command -v semanage &>/dev/null; then
+        sudo semanage fcontext -a -t swapfile_t '/var/swap(/.*)?' 2>/dev/null || true
+        sudo restorecon -RF /var/swap
+        echo "${green}${b}✓${n} SELinux context set (swapfile_t)"
+    else
+        echo "${yellow}·${n} semanage not available, skipping SELinux labeling"
+    fi
+    echo ""
+
+    # Step 3: Add fstab entry + activate swap
+    echo "${cyan}Step 3: Configure fstab and activate swap${n}"
+    sudo cp /etc/fstab /etc/fstab.bak.hibernate
+    if ! grep -q '/var/swap/swapfile' /etc/fstab; then
+        printf '\n# Btrfs swapfile for suspend-then-hibernate\n/var/swap/swapfile none swap defaults,pri=0 0 0\n' | sudo tee -a /etc/fstab > /dev/null
+    fi
+    sudo swapon -p 0 /var/swap/swapfile
+    echo "${green}${b}✓${n} Swap activated and added to fstab"
+    echo ""
+
+    # Step 4: Get resume parameters
+    echo "${cyan}Step 4: Determine resume parameters${n}"
+    RESUME_UUID=$(findmnt -no UUID -T /var/swap/swapfile)
+    RESUME_OFFSET=$(sudo btrfs inspect-internal map-swapfile -r /var/swap/swapfile)
+    echo "  resume=UUID=${RESUME_UUID}"
+    echo "  resume_offset=${RESUME_OFFSET}"
+    echo "${green}${b}✓${n} Resume parameters determined"
+    echo ""
+
+    # Step 5: Set kernel args
+    echo "${cyan}Step 5: Set kernel boot parameters${n}"
+    sudo rpm-ostree kargs \
+        --append-if-missing="resume=UUID=${RESUME_UUID}" \
+        --append-if-missing="resume_offset=${RESUME_OFFSET}"
+    echo "${green}${b}✓${n} Kernel args set"
+    echo ""
+
+    # Step 6: Enable dracut resume module
+    echo "${cyan}Step 6: Enable dracut resume module${n}"
+    echo 'add_dracutmodules+=" resume "' | sudo tee /etc/dracut.conf.d/resume.conf > /dev/null
+    sudo rpm-ostree initramfs --enable 2>/dev/null || true
+    echo "${green}${b}✓${n} Dracut resume module enabled"
+    echo "${yellow}  Note: Future system updates will be slower (initramfs rebuild on each update)${n}"
+    echo ""
+
+    # Step 7: Configure systemd sleep
+    echo "${cyan}Step 7: Configure suspend-then-hibernate (30min delay)${n}"
+    sudo mkdir -p /etc/systemd/sleep.conf.d
+    sudo tee /etc/systemd/sleep.conf.d/hibernate.conf > /dev/null << 'SLEEPCONF'
+    [Sleep]
+    AllowSuspendThenHibernate=yes
+    HibernateDelaySec=30min
+    SLEEPCONF
+    echo "${green}${b}✓${n} Sleep config installed (30 minute delay)"
+    echo ""
+
+    # Step 8: Configure logind for lid close
+    echo "${cyan}Step 8: Configure lid close behavior${n}"
+    sudo mkdir -p /etc/systemd/logind.conf.d
+    sudo tee /etc/systemd/logind.conf.d/hibernate.conf > /dev/null << 'LOGINDCONF'
+    [Login]
+    HandleLidSwitch=suspend-then-hibernate
+    HandleLidSwitchExternalPower=suspend-then-hibernate
+    LOGINDCONF
+    sudo systemctl restart systemd-logind
+    echo "${green}${b}✓${n} Logind configured for suspend-then-hibernate on lid close"
+    echo ""
+
+    # Summary
+    echo "${green}${b}Setup complete!${n}"
+    echo ""
+    echo "${b}What was configured:${n}"
+    echo "  • Swapfile: /var/swap/swapfile (${MEM_GB}GB)"
+    echo "  • Kernel: resume=UUID=${RESUME_UUID} resume_offset=${RESUME_OFFSET}"
+    echo "  • Dracut: resume module enabled"
+    echo "  • Sleep: suspend-then-hibernate with 30 minute delay"
+    echo "  • Logind: lid close triggers suspend-then-hibernate"
+    echo ""
+    echo "${b}On lid close:${n} suspend → 30min → hibernate → zero battery drain"
+    echo "${b}On wake:${n} instant (within 30min) or ~15s resume + LUKS password (after hibernate)"
+    echo ""
+    echo "${yellow}A reboot is required for kernel parameter and initramfs changes.${n}"
+    echo ""
+    read -p "Reboot now? [y/N]: " reboot_confirm
+    if [[ "$reboot_confirm" =~ ^[Yy]$ ]]; then
+        systemctl reboot
+    else
+        echo "Please reboot when convenient: ${b}systemctl reboot${n}"
+    fi
+
+# Remove suspend-then-hibernate configuration
+[group('Rocinante')]
+remove-hibernate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    b=$(tput bold 2>/dev/null) || b=""
+    n=$(tput sgr0 2>/dev/null) || n=""
+    green=$(tput setaf 2 2>/dev/null) || green=""
+    yellow=$(tput setaf 3 2>/dev/null) || yellow=""
+    red=$(tput setaf 1 2>/dev/null) || red=""
+
+    echo "${b}Remove Suspend-then-Hibernate${n}"
+    echo ""
+
+    if [[ ! -f /var/swap/swapfile ]] && [[ ! -f /etc/systemd/sleep.conf.d/hibernate.conf ]]; then
+        echo "Hibernate is not configured. Nothing to remove."
+        exit 0
+    fi
+
+    echo "This will remove all hibernate configuration:"
+    echo "  • Swapfile and swap subvolume"
+    echo "  • Kernel resume parameters"
+    echo "  • Dracut resume module"
+    echo "  • Sleep and logind configuration"
+    echo ""
+    read -p "Continue? [y/N]: " confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        echo "Cancelled."
+        exit 0
+    fi
+    echo ""
+
+    KARGS_CHANGED=false
+
+    # Remove logind config
+    if [[ -f /etc/systemd/logind.conf.d/hibernate.conf ]]; then
+        sudo rm -f /etc/systemd/logind.conf.d/hibernate.conf
+        sudo systemctl restart systemd-logind
+        echo "${green}${b}✓${n} Removed logind hibernate config"
+    fi
+
+    # Remove sleep config
+    if [[ -f /etc/systemd/sleep.conf.d/hibernate.conf ]]; then
+        sudo rm -f /etc/systemd/sleep.conf.d/hibernate.conf
+        echo "${green}${b}✓${n} Removed sleep hibernate config"
+    fi
+
+    # Remove kernel args
+    CURRENT_KARGS=$(rpm-ostree kargs 2>/dev/null || echo "")
+    RESUME_PARAM=$(echo "$CURRENT_KARGS" | tr ' ' '\n' | grep "^resume=UUID=" || true)
+    OFFSET_PARAM=$(echo "$CURRENT_KARGS" | tr ' ' '\n' | grep "^resume_offset=" || true)
+    if [[ -n "$RESUME_PARAM" ]]; then
+        sudo rpm-ostree kargs --delete-if-present="$RESUME_PARAM"
+        KARGS_CHANGED=true
+        echo "${green}${b}✓${n} Removed kernel arg: $RESUME_PARAM"
+    fi
+    if [[ -n "$OFFSET_PARAM" ]]; then
+        sudo rpm-ostree kargs --delete-if-present="$OFFSET_PARAM"
+        KARGS_CHANGED=true
+        echo "${green}${b}✓${n} Removed kernel arg: $OFFSET_PARAM"
+    fi
+
+    # Remove dracut config
+    if [[ -f /etc/dracut.conf.d/resume.conf ]]; then
+        sudo rm -f /etc/dracut.conf.d/resume.conf
+        echo "${green}${b}✓${n} Removed dracut resume config"
+    fi
+
+    # Disable initramfs overlay
+    if rpm-ostree status 2>/dev/null | grep -q "initramfs"; then
+        sudo rpm-ostree initramfs --disable 2>/dev/null || true
+        KARGS_CHANGED=true
+        echo "${green}${b}✓${n} Disabled initramfs overlay (faster future updates)"
+    fi
+
+    # Turn off swap and remove swapfile
+    if [[ -f /var/swap/swapfile ]]; then
+        sudo swapoff /var/swap/swapfile 2>/dev/null || true
+        sudo rm -f /var/swap/swapfile
+        sudo btrfs subvolume delete /var/swap 2>/dev/null || sudo rm -rf /var/swap
+        echo "${green}${b}✓${n} Removed swapfile and swap subvolume"
+    fi
+
+    # Remove fstab entry
+    if grep -q '/var/swap/swapfile' /etc/fstab 2>/dev/null; then
+        sudo sed -i '/\/var\/swap\/swapfile/d' /etc/fstab
+        sudo sed -i '/Btrfs swapfile for suspend-then-hibernate/d' /etc/fstab
+        echo "${green}${b}✓${n} Removed fstab swap entry"
+    fi
+
+    # Remove SELinux context
+    if command -v semanage &>/dev/null; then
+        sudo semanage fcontext -d '/var/swap(/.*)?' 2>/dev/null || true
+        echo "${green}${b}✓${n} Removed SELinux context"
+    fi
+
+    # Restore fstab backup if exists
+    if [[ -f /etc/fstab.bak.hibernate ]]; then
+        sudo rm -f /etc/fstab.bak.hibernate
+    fi
+
+    echo ""
+    echo "${green}${b}Hibernate configuration removed.${n}"
+
+    if [[ "$KARGS_CHANGED" == true ]]; then
+        echo ""
+        echo "${yellow}A reboot is required for kernel parameter changes to take effect.${n}"
+        echo ""
+        read -p "Reboot now? [y/N]: " reboot_confirm
+        if [[ "$reboot_confirm" =~ ^[Yy]$ ]]; then
+            systemctl reboot
+        else
+            echo "Please reboot when convenient: ${b}systemctl reboot${n}"
+        fi
+    fi

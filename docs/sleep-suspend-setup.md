@@ -113,3 +113,60 @@ sudo cat /sys/kernel/debug/amd_pmc/s0ix_stats
 - [Sleep/Suspend fixes in amdgpu doc](amdgpu-strix-point-gpu-hang.md#sleepsuspend-fixes)
 - [Bazzite #4356 — linux-firmware S0ix regression](https://github.com/bazzite-org/bazzite/issues/4356)
 - [Arch Wiki — Framework Laptop 13 Sleep](https://wiki.archlinux.org/title/Framework_Laptop_13#Sleep)
+
+## Hibernate (suspend-then-hibernate)
+
+Suspend-then-hibernate provides macOS-style sleep: the system suspends to RAM for
+a configurable delay (default 30 minutes), then hibernates to disk for zero battery
+drain. Waking within the delay window is instant; after hibernation, wake takes ~15
+seconds and requires the LUKS password.
+
+### Prerequisites
+
+- **Secure Boot must be disabled** in BIOS — kernel lockdown prevents hibernation
+- Run `ujust toggle-suspend` if suspend is currently disabled
+
+### Setup
+
+```bash
+ujust setup-hibernate
+```
+
+This configures:
+- Btrfs swap subvolume + swapfile (sized to RAM) at `/var/swap/swapfile`
+- Kernel boot parameters (`resume=`, `resume_offset=`)
+- Dracut resume module in initramfs
+- systemd sleep.conf (30 minute suspend-then-hibernate delay)
+- logind lid close → suspend-then-hibernate
+
+A reboot is required after setup.
+
+### Change hibernate delay
+
+Use the fix-sleep menu to adjust the delay:
+
+```bash
+ujust fix-sleep
+# → Select "Change hibernate delay"
+# → Choose: 15min, 30min, 1h, 2h, 3h
+```
+
+No reboot required — takes effect on next suspend.
+
+### Removal
+
+```bash
+ujust remove-hibernate
+```
+
+Removes all hibernate configuration (swap, kernel args, initramfs, configs).
+
+### Known issues
+
+- **Slower system updates**: `rpm-ostree initramfs --enable` rebuilds initramfs on each update
+- **LUKS password on wake**: After hibernation, you must enter your disk encryption password
+- **SELinux**: The setup script labels the swapfile correctly, but if you encounter AVC denials, run:
+  ```bash
+  sudo ausearch -m avc -ts recent | audit2allow -M systemd_hibernate
+  sudo semodule -i systemd_hibernate.pp
+  ```
