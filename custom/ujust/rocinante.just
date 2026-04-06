@@ -1789,7 +1789,7 @@ setup-hibernate:
     HandleLidSwitch=suspend-then-hibernate
     HandleLidSwitchExternalPower=suspend-then-hibernate
     LOGINDCONF
-    sudo systemctl restart systemd-logind
+    sudo systemctl kill -s HUP systemd-logind
     echo "${green}${b}✓${n} Logind configured for suspend-then-hibernate on lid close"
     echo ""
 
@@ -1852,7 +1852,7 @@ remove-hibernate:
     # Remove logind config
     if [[ -f /etc/systemd/logind.conf.d/hibernate.conf ]]; then
         sudo rm -f /etc/systemd/logind.conf.d/hibernate.conf
-        sudo systemctl restart systemd-logind
+        sudo systemctl kill -s HUP systemd-logind
         echo "${green}${b}✓${n} Removed logind hibernate config"
     fi
 
