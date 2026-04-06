@@ -859,11 +859,15 @@ diagnose-sleep:
     echo ""
 
     # ACPI wakeup sources
-    echo "${b}ACPI wakeup sources (enabled):${n}"
+    echo "${b}ACPI wakeup sources:${n}"
     if [[ -f /proc/acpi/wakeup ]]; then
-        grep -E "enabled" /proc/acpi/wakeup | while read -r line; do
-            echo "  $line"
-        done || true
+        while read -r line; do
+            if echo "$line" | grep -q "enabled"; then
+                echo "  ${green}${b}✓${n} $line"
+            elif echo "$line" | grep -q "XHC.*disabled"; then
+                echo "  ${yellow}·${n} $line (wakeup disabled by udev rule)"
+            fi
+        done < /proc/acpi/wakeup || true
     else
         echo "  /proc/acpi/wakeup not available"
     fi

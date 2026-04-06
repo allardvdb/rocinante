@@ -1,0 +1,4 @@
+# Disable USB controller (XHC) wakeup to prevent spurious s2idle wakes
+# Lid and power button wake via ACPI, not USB — safe to disable all XHC wakeup
+# Framework 13 AMD has 4 XHC controllers that cause spurious wakeups
+ACTION=="add", SUBSYSTEM=="pci", DRIVER=="xhci_hcd", ATTR{power/wakeup}="disabled"

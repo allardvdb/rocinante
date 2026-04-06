@@ -114,6 +114,7 @@ All variants share the same build scripts and customizations. The Containerfile 
 
 ### Sleep/Suspend Fixes (Framework 13 AMD)
 - Goodix fingerprint reader disabled via udev rule (`custom/udev/99-disable-goodix-fingerprint.rules`)
+- XHC (USB controller) wakeup disabled via udev rule to prevent spurious s2idle wakes (`custom/udev/90-disable-xhc-wakeup.rules`)
 - GVFS/FUSE mounts lazy-unmounted before suspend (`custom/systemd/system-sleep/50-unmount-fuse.sh`)
 - Machine-specific fixes applied via `ujust fix-sleep` (kernel params, wakeup source management)
 - Diagnostics via `ujust diagnose-sleep`
