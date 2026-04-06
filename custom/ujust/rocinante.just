@@ -1659,7 +1659,7 @@ setup-borgmatic:
     echo "  Timer status: ${b}systemctl --user status borgmatic.timer${n}"
     echo "  Manual run:   ${b}systemctl --user start borgmatic.service${n}"
 
-# Set up suspend-then-hibernate (macOS-style sleep)
+# Set up or configure suspend-then-hibernate (macOS-style sleep)
 [group('Rocinante')]
 setup-hibernate:
     #!/usr/bin/env bash
@@ -1671,24 +1671,143 @@ setup-hibernate:
     red=$(tput setaf 1 2>/dev/null) || red=""
     cyan=$(tput setaf 6 2>/dev/null) || cyan=""
 
-    echo "${b}Suspend-then-Hibernate Setup${n}"
-    echo ""
-    echo "This sets up macOS-style sleep: suspend to RAM for 30 minutes,"
-    echo "then hibernate to disk for zero battery drain."
-    echo ""
+    HIBERNATE_CONF="/etc/systemd/sleep.conf.d/hibernate.conf"
+    LOGIND_CONF="/etc/systemd/logind.conf.d/hibernate.conf"
+    DELAY_OPTIONS=("15min" "30min" "1h" "2h" "3h")
 
-    # Pre-flight checks
+    choose_menu() {
+        local prompt="$1"
+        shift
+        local options=("$@")
+        if command -v gum &> /dev/null; then
+            gum choose --header "$prompt" "${options[@]}"
+        else
+            echo "$prompt" >&2
+            local i=1
+            for opt in "${options[@]}"; do
+                echo "  ${i}) ${opt}" >&2
+                ((i++))
+            done
+            echo "" >&2
+            read -p "Choice [1-${#options[@]}]: " choice
+            if [[ "$choice" -ge 1 && "$choice" -le "${#options[@]}" ]] 2>/dev/null; then
+                echo "${options[$((choice-1))]}"
+            else
+                echo ""
+            fi
+        fi
+    }
+
+    set_delay() {
+        local delay="$1"
+        sudo mkdir -p /etc/systemd/sleep.conf.d
+        sudo tee "$HIBERNATE_CONF" > /dev/null << DELAYEOF
+    [Sleep]
+    AllowSuspendThenHibernate=yes
+    HibernateDelaySec=${delay}
+    DELAYEOF
+        echo "${green}${b}✓${n} Hibernate delay set to ${delay}"
+    }
+
+    set_logind() {
+        sudo mkdir -p /etc/systemd/logind.conf.d
+        sudo tee "$LOGIND_CONF" > /dev/null << 'LOGINDEOF'
+    [Login]
+    HandleLidSwitch=suspend-then-hibernate
+    HandleLidSwitchExternalPower=suspend-then-hibernate
+    LOGINDEOF
+        sudo systemctl kill -s HUP systemd-logind
+        echo "${green}${b}✓${n} Logind configured for suspend-then-hibernate on lid close"
+    }
+
+    show_status() {
+        echo "${b}Suspend-then-Hibernate Status${n}"
+        echo ""
+
+        # Swapfile
+        if [[ -f /var/swap/swapfile ]]; then
+            SWAP_SIZE=$(ls -lh /var/swap/swapfile 2>/dev/null | awk '{print $5}')
+            echo "  Swapfile:         ${green}${b}✓${n} /var/swap/swapfile (${SWAP_SIZE})"
+        else
+            echo "  Swapfile:         · not configured"
+        fi
+
+        # Kernel args
+        CURRENT_KARGS=$(rpm-ostree kargs 2>/dev/null || echo "")
+        if echo "$CURRENT_KARGS" | grep -q "resume=UUID="; then
+            echo "  Kernel resume:    ${green}${b}✓${n} configured"
+        else
+            echo "  Kernel resume:    · not configured"
+        fi
+
+        # Dracut
+        if [[ -f /etc/dracut.conf.d/resume.conf ]]; then
+            echo "  Dracut resume:    ${green}${b}✓${n} enabled"
+        else
+            echo "  Dracut resume:    · not configured"
+        fi
+
+        # Hibernate delay
+        if [[ -f "$HIBERNATE_CONF" ]]; then
+            CURRENT_DELAY=$(grep "HibernateDelaySec" "$HIBERNATE_CONF" 2>/dev/null | cut -d= -f2 || echo "?")
+            echo "  Hibernate delay:  ${green}${b}✓${n} ${CURRENT_DELAY}"
+        else
+            echo "  Hibernate delay:  · not configured"
+        fi
+
+        # Logind
+        if [[ -f "$LOGIND_CONF" ]]; then
+            echo "  Lid close action: ${green}${b}✓${n} suspend-then-hibernate"
+        else
+            echo "  Lid close action: · not configured"
+        fi
+        echo ""
+    }
+
+    # Pre-flight check
     if grep -q '\[disabled\]' /sys/power/disk 2>/dev/null; then
         echo "${red}${b}Error:${n} Hibernate is disabled by the kernel."
         echo "This usually means Secure Boot is enabled. Disable it in BIOS first."
         exit 1
     fi
 
+    # Already configured — show status and config menu
     if [[ -f /var/swap/swapfile ]]; then
-        echo "${yellow}${b}Warning:${n} Hibernate appears already configured (/var/swap/swapfile exists)."
-        echo "Run ${b}ujust remove-hibernate${n} first to reconfigure."
-        exit 1
+        while true; do
+            show_status
+
+            ACTION=$(choose_menu "Select an option:" \
+                "Change hibernate delay" \
+                "Reconfigure logind (lid close)" \
+                "Done")
+
+            case "$ACTION" in
+                "Change hibernate delay")
+                    CURRENT_DELAY=$(grep "HibernateDelaySec" "$HIBERNATE_CONF" 2>/dev/null | cut -d= -f2 || echo "30min")
+                    echo "Current delay: ${b}${CURRENT_DELAY}${n}"
+                    echo ""
+                    DELAY=$(choose_menu "Select hibernate delay:" "${DELAY_OPTIONS[@]}")
+                    if [[ -n "$DELAY" ]]; then
+                        set_delay "$DELAY"
+                        echo "  Takes effect on next suspend (no reboot needed)"
+                    fi
+                    ;;
+                "Reconfigure logind (lid close)")
+                    set_logind
+                    ;;
+                "Done"|"") break ;;
+            esac
+            echo ""
+        done
+        exit 0
     fi
+
+    # Fresh setup
+    echo "${b}Suspend-then-Hibernate Setup${n}"
+    echo ""
+    echo "This sets up macOS-style sleep: suspend to RAM, then hibernate"
+    echo "to disk for zero battery drain after a configurable delay."
+    echo ""
 
     if [[ -f /etc/systemd/logind.conf.d/no-suspend.conf ]]; then
         echo "${yellow}${b}Warning:${n} Suspend is currently disabled (no-suspend.conf)."
@@ -1717,6 +1836,16 @@ setup-hibernate:
     SWAP_KB=$(( SWAP_GB * 1024 * 1024 ))
     echo "  Swapfile size: ${SWAP_GB}GB"
     echo ""
+
+    # Choose hibernate delay
+    echo "  Default delay: 30min (suspend for 30 minutes, then hibernate)"
+    DELAY=$(choose_menu "Select hibernate delay:" "${DELAY_OPTIONS[@]}")
+    if [[ -z "$DELAY" ]]; then
+        DELAY="30min"
+    fi
+    echo "  Hibernate delay: ${DELAY}"
+    echo ""
+
     read -p "Proceed with setup? [Y/n]: " confirm
     if [[ "$confirm" =~ ^[Nn]$ ]]; then
         echo "Cancelled."
@@ -1807,26 +1936,13 @@ setup-hibernate:
     echo ""
 
     # Step 7: Configure systemd sleep
-    echo "${cyan}Step 7: Configure suspend-then-hibernate (30min delay)${n}"
-    sudo mkdir -p /etc/systemd/sleep.conf.d
-    sudo tee /etc/systemd/sleep.conf.d/hibernate.conf > /dev/null << 'SLEEPCONF'
-    [Sleep]
-    AllowSuspendThenHibernate=yes
-    HibernateDelaySec=30min
-    SLEEPCONF
-    echo "${green}${b}✓${n} Sleep config installed (30 minute delay)"
+    echo "${cyan}Step 7: Configure suspend-then-hibernate${n}"
+    set_delay "$DELAY"
     echo ""
 
     # Step 8: Configure logind for lid close
     echo "${cyan}Step 8: Configure lid close behavior${n}"
-    sudo mkdir -p /etc/systemd/logind.conf.d
-    sudo tee /etc/systemd/logind.conf.d/hibernate.conf > /dev/null << 'LOGINDCONF'
-    [Login]
-    HandleLidSwitch=suspend-then-hibernate
-    HandleLidSwitchExternalPower=suspend-then-hibernate
-    LOGINDCONF
-    sudo systemctl kill -s HUP systemd-logind
-    echo "${green}${b}✓${n} Logind configured for suspend-then-hibernate on lid close"
+    set_logind
     echo ""
 
     # Summary
@@ -1836,11 +1952,11 @@ setup-hibernate:
     echo "  • Swapfile: /var/swap/swapfile (${SWAP_GB}GB)"
     echo "  • Kernel: resume=UUID=${RESUME_UUID} resume_offset=${RESUME_OFFSET}"
     echo "  • Dracut: resume module enabled"
-    echo "  • Sleep: suspend-then-hibernate with 30 minute delay"
+    echo "  • Sleep: suspend-then-hibernate with ${DELAY} delay"
     echo "  • Logind: lid close triggers suspend-then-hibernate"
     echo ""
-    echo "${b}On lid close:${n} suspend → 30min → hibernate → zero battery drain"
-    echo "${b}On wake:${n} instant (within 30min) or ~15s resume + LUKS password (after hibernate)"
+    echo "${b}On lid close:${n} suspend → ${DELAY} → hibernate → zero battery drain"
+    echo "${b}On wake:${n} instant (within ${DELAY}) or ~15s resume (after hibernate)"
     echo ""
     echo "${yellow}A reboot is required for kernel parameter and initramfs changes.${n}"
     echo ""
