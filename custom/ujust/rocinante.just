@@ -1960,6 +1960,32 @@ setup-hibernate:
     set_logind
     echo ""
 
+    # Step 9: Install battery benchmark sleep hook
+    # Logs battery state on pre/post suspend-then-hibernate so the user can
+    # measure power drain across cycles via: journalctl -t hibernate-bench
+    echo "${cyan}Step 9: Install battery benchmark hook${n}"
+    sudo mkdir -p /etc/systemd/system-sleep
+    sudo tee /etc/systemd/system-sleep/00-battery-bench.sh > /dev/null << 'BENCHEOF'
+    #!/bin/bash
+    # Log battery state for power drain benchmarking around suspend-then-hibernate
+    [[ "$2" == "suspend-then-hibernate" ]] || exit 0
+
+    bat=/sys/class/power_supply/BAT1
+    [[ -d "$bat" ]] || bat=/sys/class/power_supply/BAT0
+    [[ -d "$bat" ]] || exit 0
+
+    cap=$(cat "$bat/capacity" 2>/dev/null)
+    energy_uwh=$(cat "$bat/energy_now" 2>/dev/null)
+    status=$(cat "$bat/status" 2>/dev/null)
+    energy_wh=$(awk "BEGIN { printf \"%.3f\", ${energy_uwh:-0} / 1000000 }")
+
+    logger -t hibernate-bench "phase=$1 capacity=${cap}% energy=${energy_wh}Wh status=$status"
+    BENCHEOF
+    sudo chmod 755 /etc/systemd/system-sleep/00-battery-bench.sh
+    echo "${green}${b}✓${n} Battery benchmark hook installed"
+    echo "  Query with: ${b}journalctl -t hibernate-bench${n}"
+    echo ""
+
     # Summary
     echo "${green}${b}Setup complete!${n}"
     echo ""
@@ -1969,6 +1995,7 @@ setup-hibernate:
     echo "  • Dracut: resume module enabled"
     echo "  • Sleep: suspend-then-hibernate with ${DELAY} delay"
     echo "  • Logind: lid close triggers suspend-then-hibernate"
+    echo "  • Bench:  battery drain logged to journal (tag: hibernate-bench)"
     echo ""
     echo "${b}On lid close:${n} suspend → ${DELAY} → hibernate → zero battery drain"
     echo "${b}On wake:${n} instant (within ${DELAY}) or ~15s resume (after hibernate)"
@@ -2052,6 +2079,12 @@ remove-hibernate:
     if [[ -f /etc/dracut.conf.d/xhc-wakeup-hibernate.conf ]]; then
         sudo rm -f /etc/dracut.conf.d/xhc-wakeup-hibernate.conf
         echo "${green}${b}✓${n} Removed XHC wakeup initramfs bundling"
+    fi
+
+    # Remove battery benchmark sleep hook
+    if [[ -f /etc/systemd/system-sleep/00-battery-bench.sh ]]; then
+        sudo rm -f /etc/systemd/system-sleep/00-battery-bench.sh
+        echo "${green}${b}✓${n} Removed battery benchmark hook"
     fi
 
     # Disable initramfs overlay
