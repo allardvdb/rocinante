@@ -711,6 +711,7 @@ fix-sleep:
     [Sleep]
     AllowSuspendThenHibernate=yes
     HibernateDelaySec=${DELAY}
+    HibernateOnACPower=no
     DELAYEOF
         echo "${green}${b}✓${n} Hibernate delay set to ${DELAY}"
         echo "  Takes effect on next suspend (no reboot needed)"
@@ -1705,6 +1706,7 @@ setup-hibernate:
     [Sleep]
     AllowSuspendThenHibernate=yes
     HibernateDelaySec=${delay}
+    HibernateOnACPower=no
     DELAYEOF
         echo "${green}${b}✓${n} Hibernate delay set to ${delay}"
     }
@@ -1935,6 +1937,19 @@ setup-hibernate:
     echo "${yellow}  Note: Future system updates will be slower (initramfs rebuild on each update)${n}"
     echo ""
 
+    # Step 6b: Bundle XHC wakeup udev rule into initramfs
+    # Without this, XHC controllers still have firmware-default wakeup enabled
+    # during resume, causing "Wakeup pending. Abort CPU freeze" errors.
+    echo "${cyan}Step 6b: Bundle XHC wakeup rule into initramfs${n}"
+    if [[ -f /etc/udev/rules.d/90-disable-xhc-wakeup.rules ]]; then
+        echo 'install_items+=" /etc/udev/rules.d/90-disable-xhc-wakeup.rules "' | \
+            sudo tee /etc/dracut.conf.d/xhc-wakeup-hibernate.conf > /dev/null
+        echo "${green}${b}✓${n} XHC wakeup rule bundled into initramfs"
+    else
+        echo "${yellow}·${n} XHC wakeup rule not found, skipping (install a newer rocinante image)"
+    fi
+    echo ""
+
     # Step 7: Configure systemd sleep
     echo "${cyan}Step 7: Configure suspend-then-hibernate${n}"
     set_delay "$DELAY"
@@ -2033,6 +2048,10 @@ remove-hibernate:
     if [[ -f /etc/dracut.conf.d/resume.conf ]]; then
         sudo rm -f /etc/dracut.conf.d/resume.conf
         echo "${green}${b}✓${n} Removed dracut resume config"
+    fi
+    if [[ -f /etc/dracut.conf.d/xhc-wakeup-hibernate.conf ]]; then
+        sudo rm -f /etc/dracut.conf.d/xhc-wakeup-hibernate.conf
+        echo "${green}${b}✓${n} Removed XHC wakeup initramfs bundling"
     fi
 
     # Disable initramfs overlay
