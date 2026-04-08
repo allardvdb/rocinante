@@ -81,6 +81,24 @@ fi
 # Clear stale module trees left behind by the erased packages.
 rm -rf /usr/lib/modules/*
 
+# Shim out the kernel-install.d plugins that fire from kernel-core's
+# %posttrans scriptlet. Inside a buildah container environment,
+# `05-rpmostree.install` calls `rpm-ostree kernel-install` which tries
+# to regenerate the initramfs via dracut and fails with "Invalid cross-
+# device link". The shim replaces both plugins with /bin/sh true stubs
+# for the duration of the dnf5 install, then restores them. initramfs
+# gets regenerated on the running system at first boot anyway, so
+# skipping it during the image build is safe.
+#
+# Pattern cribbed verbatim from bazzite's build_files/install-kernel.
+pushd /usr/lib/kernel/install.d >/dev/null
+mv 05-rpmostree.install 05-rpmostree.install.bak
+mv 50-dracut.install 50-dracut.install.bak
+printf '%s\n' '#!/bin/sh' 'exit 0' > 05-rpmostree.install
+printf '%s\n' '#!/bin/sh' 'exit 0' > 50-dracut.install
+chmod +x 05-rpmostree.install 50-dracut.install
+popd >/dev/null
+
 # Install the pinned kernel RPMs from the akmods bind mount.
 # Globs match the bluefin pattern (kernel-[0-9]*.rpm catches kernel-<version>
 # only, not kernel-core-* or kernel-modules-*).
@@ -118,6 +136,16 @@ if [[ "${BASE_IMAGE}" == *nvidia* ]]; then
         "${AKMODS_NVIDIA_SRC}"/rpms/kmods/kmod-nvidia-"${KERNEL_PIN}"-*.rpm \
         "${AKMODS_NVIDIA_SRC}"/rpms/ublue-os/ublue-os-nvidia-addons-*.rpm
 fi
+
+# Restore the real kernel-install.d plugins. Must happen BEFORE
+# versionlock (which is not strictly kernel-install related) and
+# BEFORE the script returns — the actual initramfs regeneration
+# will fire at first boot via bootc/ostree, which needs these
+# plugins in place.
+pushd /usr/lib/kernel/install.d >/dev/null
+mv -f 05-rpmostree.install.bak 05-rpmostree.install
+mv -f 50-dracut.install.bak 50-dracut.install
+popd >/dev/null
 
 # Prevent any subsequent dnf5 operation in this or future builds from
 # bumping the kernel. The versionlock plugin is present in bluefin:stable
