@@ -66,6 +66,23 @@ mapfile -t OLD_KMODS < <(
 echo "Installed kmods to erase:"
 printf '  %s\n' "${OLD_KMODS[@]}"
 
+# Discover currently installed ZFS userspace packages. These must be
+# swapped as a set together with kmod-zfs: the akmods-zfs container is
+# a snapshot bundled with the pinned kernel, so the ZFS version inside
+# it may differ from whatever the base image currently has (e.g.
+# akmods-zfs for 6.17.12 ships ZFS 2.3.5, but bluefin:stable has since
+# upgraded to 2.3.6). If we leave the old userspace in place, dnf5
+# fails to resolve the transaction with "cannot install both
+# libnvpair3-<old> and libnvpair3-<new>" style conflicts.
+mapfile -t OLD_ZFS < <(
+    rpm -qa --qf '%{NAME}\n' \
+        'zfs' 'zfs-dracut' 'zfs-test' \
+        'libnvpair*' 'libuutil*' 'libzfs*' 'libzpool*' \
+        'python3-pyzfs' 2>/dev/null | sort -u
+)
+echo "Installed ZFS userspace packages to erase:"
+printf '  %s\n' "${OLD_ZFS[@]}"
+
 # Erase the old kernel (--nodeps because kmods still depend on it; we'll
 # reinstall matching versions in a moment).
 if [[ ${#OLD_KERNEL_PKGS[@]} -gt 0 ]]; then
@@ -76,6 +93,12 @@ fi
 # them; versions are about to be replaced).
 if [[ ${#OLD_KMODS[@]} -gt 0 ]]; then
     rpm --erase --nodeps "${OLD_KMODS[@]}" || true
+fi
+
+# Erase the old ZFS userspace so the matching 2.x versions from
+# akmods-zfs can install cleanly.
+if [[ ${#OLD_ZFS[@]} -gt 0 ]]; then
+    rpm --erase --nodeps "${OLD_ZFS[@]}" || true
 fi
 
 # Clear stale module trees left behind by the erased packages.
@@ -139,16 +162,20 @@ dnf5 -y install \
     "${AKMODS_SRC}"/rpms/kmods/kmod-v4l2loopback-*.rpm \
     "${AKMODS_SRC}"/rpms/ublue-os/ublue-os-akmods-addons-*.rpm
 
-# Install matching ZFS kmod + userspace libs built against the pinned kernel.
-# Bluefin's ZFS_RPMS glob pattern (PR #4187) — match version-number suffixes
-# to avoid pulling in debug/devel subpackages from /rpms/kmods/zfs/{debug,devel}/.
+# Install matching ZFS kmod + userspace built against the pinned kernel.
+# Mirror bluefin PR #4187's ZFS_RPMS list (version-number suffixes avoid
+# pulling in debug/devel subpackages from /rpms/kmods/zfs/{debug,devel}/),
+# plus `zfs` (the main userspace meta at the zfs/ top level) and
+# zfs-dracut (which lives under zfs/other/).
 dnf5 -y install \
     "${AKMODS_ZFS_SRC}"/rpms/kmods/zfs/kmod-zfs-"${KERNEL_PIN}"-*.rpm \
+    "${AKMODS_ZFS_SRC}"/rpms/kmods/zfs/zfs-[0-9]*.rpm \
     "${AKMODS_ZFS_SRC}"/rpms/kmods/zfs/libnvpair[0-9]-*.rpm \
     "${AKMODS_ZFS_SRC}"/rpms/kmods/zfs/libuutil[0-9]-*.rpm \
     "${AKMODS_ZFS_SRC}"/rpms/kmods/zfs/libzfs[0-9]-*.rpm \
     "${AKMODS_ZFS_SRC}"/rpms/kmods/zfs/libzpool[0-9]-*.rpm \
-    "${AKMODS_ZFS_SRC}"/rpms/kmods/zfs/python3-pyzfs-*.rpm
+    "${AKMODS_ZFS_SRC}"/rpms/kmods/zfs/python3-pyzfs-*.rpm \
+    "${AKMODS_ZFS_SRC}"/rpms/kmods/zfs/other/zfs-dracut-*.rpm
 
 # Nvidia-open variant: restore kmod-nvidia built against the pinned kernel.
 # Userspace nvidia libs come from the bluefin-nvidia-open base image and
