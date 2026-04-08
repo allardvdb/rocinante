@@ -1801,9 +1801,10 @@ setup-hibernate:
                 }
             done
         fi
-        # Convert systemd timespan to seconds (LC_ALL=C pins the μs label
-        # against locale-dependent output) and arm RTC
-        US=$(LC_ALL=C systemd-analyze timespan "$DELAY" 2>/dev/null | awk '/μs:/ {print $2}')
+        # Convert systemd timespan to microseconds then seconds, and arm RTC.
+        # Match both "us:" (current systemd) and "μs:" (older systemd) labels;
+        # LC_ALL=C pins label wording against locale-dependent output.
+        US=$(LC_ALL=C systemd-analyze timespan "$DELAY" 2>/dev/null | awk '$1 == "us:" || $1 == "μs:" {print $2}')
         [[ -n "$US" ]] || { logger -t delayed-hibernate "invalid delay '$DELAY'"; exit 0; }
         SECS=$((US / 1000000))
         [[ "$SECS" -gt 0 ]] || exit 0
