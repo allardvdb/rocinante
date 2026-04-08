@@ -40,9 +40,63 @@ This is a known upstream bug in the `amdgpu` driver affecting Strix Point GPUs. 
 - **Kernel**: 6.17.x (known good range; 6.18.x and 6.19.x are **worse**)
 - **Firmware**: linux-firmware-20260110
 
+## Build-time kernel pin (rocinante)
+
+Since PR #77, the rocinante image pins the kernel to **6.17.12-300.fc43.x86_64**
+at build time via `build/05-kernel-pin.sh`. This prevents the image from
+inheriting whichever kernel `ghcr.io/ublue-os/bluefin:stable` happens to
+ship — upstream bluefin crossed into the bad 6.18.x range on 2026-03-03
+and then into 6.19.7 on 2026-04-07, at which point the MES hang became
+reproducible on Framework 13 AMD during normal use.
+
+The pin is a close port of the mechanism from [bluefin PR #4187]
+(https://github.com/ublue-os/bluefin/pull/4187). Kernel and matching
+akmod RPMs are sourced from pre-built upstream images:
+
+- `ghcr.io/ublue-os/akmods:coreos-stable-43-6.17.12-300.fc43.x86_64`
+  (kernel-core, kernel-modules, framework-laptop + v4l2loopback kmods)
+- `ghcr.io/ublue-os/akmods-zfs:coreos-stable-43-6.17.12-300.fc43.x86_64`
+  (zfs kmod and userspace libs built against the pinned kernel)
+- `ghcr.io/ublue-os/akmods-nvidia-open:coreos-stable-43-6.17.12-300.fc43.x86_64`
+  (kmod-nvidia for the rocinante-nvidia variant)
+
+`dnf5 versionlock` prevents subsequent build steps from bumping the
+kernel. Verify on a running system:
+
+```bash
+rpm-ostree status          # Version line includes the image tag
+uname -r                   # Should report 6.17.12-300.fc43.x86_64
+rpm -q kernel-core         # Same
+```
+
+### Exit criterion
+
+Remove `build/05-kernel-pin.sh`, the multi-stage `FROM`s in
+`Containerfile`, and the `KERNEL_PIN` build-arg in
+`.github/workflows/build.yml` when **any** of the following becomes true:
+
+1. **Kernel 7.0+** lands in Fedora 43 stable. Per the kernel version notes
+   in the "Sleep/Suspend Fixes" section below, 7.0 is expected to include
+   MES scheduler improvements for gfx1150.
+2. **Upstream bluefin re-pins** via PR #4187's mechanism (uncomment the
+   `kernel_pin:` line in their build workflow). Rocinante inherits the
+   pinned kernel automatically in that case and our downstream pin becomes
+   redundant.
+3. **Fedora backports the MES fix** to 6.19.x or later such that
+   `journalctl -k | grep -i 'MES failed to respond'` stays clean for at
+   least a week of normal use on Framework 13 AMD.
+
+### Runtime fallback
+
+If you're somehow on a non-pinned kernel (e.g. a hand-built image, or a
+variant that was rebuilt without the build-arg), the runtime kernel
+parameter workarounds below remain effective as defense in depth.
+
 ## Workarounds
 
-These are machine-specific kernel parameters, not baked into the rocinante image. The recommended way to apply them is:
+These are machine-specific kernel parameters, used either as runtime
+defense in depth on top of the pinned kernel, or as a fallback when
+running on a non-pinned kernel. The recommended way to apply them is:
 
 ```bash
 ujust fix-amdgpu

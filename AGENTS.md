@@ -33,6 +33,7 @@ This is a custom Universal Blue / Bluefin Linux image that creates a personalize
 │       ├── validate-justfiles.yml   # Justfile format check on PRs
 │       └── validate-shellcheck.yml  # Shellcheck on build/*.sh on PRs
 ├── build/                     # Build scripts (numbered, run during image build)
+│   ├── 05-kernel-pin.sh      # Kernel pin (avoids AMD MES hang on Strix Point)
 │   ├── 10-build.sh           # Main orchestrator (brew, packages, ujust, systemd)
 │   ├── 20-1password.sh       # 1Password desktop + CLI installation
 │   ├── 30-incus.sh           # Incus VM manager + QEMU/SPICE/VFIO
@@ -67,6 +68,7 @@ This means build scripts and custom files are never `COPY`'d into the final imag
 
 ### How build scripts work
 - `build/10-build.sh` is the main orchestrator:
+  - Calls `05-kernel-pin.sh` first (swaps base image kernel + kmods to the pinned version)
   - Installs Homebrew via `rsync` from `/ctx/oci/brew/`
   - Copies Brewfiles to `/usr/share/ublue-os/homebrew/`
   - Concatenates `custom/ujust/*.just` into `/usr/share/ublue-os/just/60-custom.just`
@@ -104,6 +106,15 @@ All variants share the same build scripts and customizations. The Containerfile 
 - `brew-setup.service` runs on first boot to initialize Homebrew
 - `brew-update.timer` and `brew-upgrade.timer` keep packages current
 - Brewfiles in `custom/brew/` are copied to `/usr/share/ublue-os/homebrew/`
+
+### Kernel Pin
+- `build/05-kernel-pin.sh` pins the kernel to a known-good version built by ublue-os/akmods
+- Avoids the AMD MES scheduler hang on Strix Point / gfx1150 (Framework 13 AMD) introduced by kernels 6.18.x and 6.19.x — see `docs/amdgpu-strix-point-gpu-hang.md`
+- Version controlled via `KERNEL_PIN` build arg (default `6.17.12-300.fc43.x86_64`) in Containerfile and `.github/workflows/build.yml`
+- Kernel + matching kmod RPMs are bind-mounted into the build from `ghcr.io/ublue-os/akmods:coreos-stable-43-<KERNEL_PIN>`, `akmods-zfs:...`, and (for nvidia variant) `akmods-nvidia-open:...` — no files are baked into intermediate layers
+- Erases the base image's kernel + kmod set with `rpm --erase --nodeps`, reinstalls from the akmods bind mounts, locks with `dnf5 versionlock`
+- Mechanism closely ports the kernel-swap pattern from [bluefin PR #4187](https://github.com/ublue-os/bluefin/pull/4187)
+- Removable in a single revert when kernel 7.0+ lands upstream or when bluefin re-pins. See exit criterion in `docs/amdgpu-strix-point-gpu-hang.md`.
 
 ### Firmware Override
 - `build/50-firmware.sh` pins `linux-firmware` to a known-good version from Koji
