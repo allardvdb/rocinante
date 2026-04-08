@@ -571,8 +571,8 @@ fix-sleep:
         fi
 
         # Hibernate status
-        if [[ -f /etc/systemd/sleep.conf.d/hibernate.conf ]]; then
-            HDELAY=$(grep "HibernateDelaySec" /etc/systemd/sleep.conf.d/hibernate.conf 2>/dev/null | cut -d= -f2 || echo "?")
+        if [[ -f /etc/rocinante/hibernate-delay ]]; then
+            HDELAY=$(cat /etc/rocinante/hibernate-delay 2>/dev/null || echo "?")
             echo "  Hibernate delay:     ${green}${b}✓${n} ${HDELAY}"
         else
             echo "  Hibernate delay:     · not configured"
@@ -690,29 +690,38 @@ fix-sleep:
     }
 
     change_hibernate_delay() {
-        local HIBERNATE_CONF="/etc/systemd/sleep.conf.d/hibernate.conf"
-        if [[ ! -f "$HIBERNATE_CONF" ]]; then
+        local DELAY_FILE="/etc/rocinante/hibernate-delay"
+        if [[ ! -f "$DELAY_FILE" ]]; then
             echo "${yellow}Hibernate is not configured. Run ${b}ujust setup-hibernate${n}${yellow} first.${n}"
             return
         fi
 
-        CURRENT_DELAY=$(grep "HibernateDelaySec" "$HIBERNATE_CONF" 2>/dev/null | cut -d= -f2 || echo "unknown")
+        CURRENT_DELAY=$(cat "$DELAY_FILE" 2>/dev/null || echo "unknown")
         echo "Current hibernate delay: ${b}${CURRENT_DELAY}${n}"
         echo ""
 
         DELAY=$(choose_menu "Select hibernate delay:" \
-            "15min" "30min" "1h" "2h" "3h")
+            "15min" "30min" "1h" "2h" "3h" "6h" "8h" "12h" "Custom...")
+
+        if [[ "$DELAY" == "Custom..." ]]; then
+            local input
+            while true; do
+                read -p "Enter delay (e.g. 45min, 1h30m, 8h, 12h): " input
+                [[ -z "$input" ]] && DELAY="" && break
+                if systemd-analyze timespan "$input" >/dev/null 2>&1; then
+                    DELAY="$input"
+                    break
+                fi
+                echo "${red}Invalid format.${n} Use systemd time syntax: 30s, 45min, 2h, 1h30m, 1d..." >&2
+            done
+        fi
 
         if [[ -z "$DELAY" ]]; then
             return
         fi
 
-        sudo tee "$HIBERNATE_CONF" > /dev/null << DELAYEOF
-    [Sleep]
-    AllowSuspendThenHibernate=yes
-    HibernateDelaySec=${DELAY}
-    HibernateOnACPower=no
-    DELAYEOF
+        sudo mkdir -p /etc/rocinante
+        echo "$DELAY" | sudo tee "$DELAY_FILE" > /dev/null
         echo "${green}${b}✓${n} Hibernate delay set to ${DELAY}"
         echo "  Takes effect on next suspend (no reboot needed)"
     }
@@ -1672,10 +1681,12 @@ setup-hibernate:
     red=$(tput setaf 1 2>/dev/null) || red=""
     cyan=$(tput setaf 6 2>/dev/null) || cyan=""
 
-    HIBERNATE_CONF="/etc/systemd/sleep.conf.d/hibernate.conf"
     LOGIND_CONF="/etc/systemd/logind.conf.d/hibernate.conf"
     BENCH_HOOK="/etc/systemd/system-sleep/00-battery-bench.sh"
-    DELAY_OPTIONS=("15min" "30min" "1h" "2h" "3h")
+    DELAY_HOOK="/etc/systemd/system-sleep/10-delayed-hibernate.sh"
+    DELAY_FILE="/etc/rocinante/hibernate-delay"
+    AC_FILE="/etc/rocinante/hibernate-on-ac"
+    DELAY_OPTIONS=("15min" "30min" "1h" "2h" "3h" "6h" "8h" "12h" "Custom...")
 
     choose_menu() {
         local prompt="$1"
@@ -1700,35 +1711,147 @@ setup-hibernate:
         fi
     }
 
+    validate_timespan() {
+        systemd-analyze timespan "$1" >/dev/null 2>&1
+    }
+
+    prompt_custom_delay() {
+        local input
+        while true; do
+            read -p "Enter delay (e.g. 45min, 1h30m, 8h, 12h): " input
+            [[ -z "$input" ]] && return 1
+            if validate_timespan "$input"; then
+                echo "$input"
+                return 0
+            fi
+            echo "${red}Invalid format.${n} Use systemd time syntax: 30s, 45min, 2h, 1h30m, 1d..." >&2
+        done
+    }
+
     set_delay() {
         local delay="$1"
-        sudo mkdir -p /etc/systemd/sleep.conf.d
-        sudo tee "$HIBERNATE_CONF" > /dev/null << DELAYEOF
-    [Sleep]
-    AllowSuspendThenHibernate=yes
-    HibernateDelaySec=${delay}
-    HibernateOnACPower=no
-    DELAYEOF
+        sudo mkdir -p /etc/rocinante
+        echo "$delay" | sudo tee "$DELAY_FILE" > /dev/null
         echo "${green}${b}✓${n} Hibernate delay set to ${delay}"
+    }
+
+    set_hibernate_on_ac() {
+        local value="$1"
+        sudo mkdir -p /etc/rocinante
+        echo "$value" | sudo tee "$AC_FILE" > /dev/null
+        echo "${green}${b}✓${n} Hibernate on AC set to ${value}"
     }
 
     set_logind() {
         sudo mkdir -p /etc/systemd/logind.conf.d
         sudo tee "$LOGIND_CONF" > /dev/null << 'LOGINDEOF'
     [Login]
-    HandleLidSwitch=suspend-then-hibernate
-    HandleLidSwitchExternalPower=suspend-then-hibernate
+    HandleLidSwitch=suspend
+    HandleLidSwitchExternalPower=suspend
     LOGINDEOF
         sudo systemctl kill -s HUP systemd-logind
-        echo "${green}${b}✓${n} Logind configured for suspend-then-hibernate on lid close"
+        echo "${green}${b}✓${n} Logind configured (lid close → suspend; delayed hibernate via hook)"
+    }
+
+    install_delayed_hibernate_hook() {
+        # Refuse to install without rtcwake — without it the hook would
+        # write empty wakealarm reads, which the post branch interprets
+        # as "RTC fired" and schedules hibernate on every lid open.
+        if ! command -v rtcwake >/dev/null 2>&1; then
+            echo "${red}${b}Error:${n} rtcwake not found (install util-linux). Hook not installed."
+            return 1
+        fi
+        sudo mkdir -p /etc/systemd/system-sleep
+        sudo tee "$DELAY_HOOK" > /dev/null << 'HOOKEOF'
+    #!/bin/bash
+    # Delayed hibernate via RTC alarm — bypasses broken systemd suspend-then-hibernate.
+    # See: https://github.com/systemd/systemd/issues/38193
+    #      https://github.com/basecamp/omarchy/pull/5051
+
+    # Only act on plain suspend, not direct hibernate
+    [[ "$2" == "suspend" ]] || exit 0
+
+    DELAY_FILE=/etc/rocinante/hibernate-delay
+    AC_FILE=/etc/rocinante/hibernate-on-ac
+    ARMED_FILE=/run/delayed-hibernate.armed
+    WAKEALARM=/sys/class/rtc/rtc0/wakealarm
+
+    # Defensive: if the wakealarm sysfs path is missing, do nothing.
+    # Without it the post branch can't tell RTC wake from user wake.
+    [[ -e "$WAKEALARM" ]] || {
+        logger -t delayed-hibernate "$WAKEALARM not present, skipping"
+        exit 0
+    }
+
+    [[ -f "$DELAY_FILE" ]] || exit 0
+    DELAY=$(cat "$DELAY_FILE" 2>/dev/null)
+    [[ -n "$DELAY" ]] || exit 0
+    HIBERNATE_ON_AC=$(cat "$AC_FILE" 2>/dev/null || echo "no")
+
+    if [[ "$1" == "pre" ]]; then
+        # Clear any stale breadcrumb from a previous cycle
+        rm -f "$ARMED_FILE"
+
+        # If on AC and configured not to hibernate on AC, skip the alarm
+        if [[ "$HIBERNATE_ON_AC" == "no" ]]; then
+            for ac in /sys/class/power_supply/A*/online; do
+                [[ -f "$ac" ]] && [[ "$(cat "$ac")" == "1" ]] && {
+                    logger -t delayed-hibernate "on AC, skipping alarm (delay=${DELAY})"
+                    exit 0
+                }
+            done
+        fi
+        # Convert systemd timespan to seconds (LC_ALL=C pins the μs label
+        # against locale-dependent output) and arm RTC
+        US=$(LC_ALL=C systemd-analyze timespan "$DELAY" 2>/dev/null | awk '/μs:/ {print $2}')
+        [[ -n "$US" ]] || { logger -t delayed-hibernate "invalid delay '$DELAY'"; exit 0; }
+        SECS=$((US / 1000000))
+        [[ "$SECS" -gt 0 ]] || exit 0
+        if rtcwake -m no -s "$SECS" >/dev/null 2>&1; then
+            # Drop a breadcrumb so the post branch knows we successfully armed
+            touch "$ARMED_FILE"
+            logger -t delayed-hibernate "armed RTC alarm for ${DELAY} (${SECS}s)"
+        else
+            logger -t delayed-hibernate "rtcwake failed, alarm not armed"
+        fi
+    fi
+
+    if [[ "$1" == "post" ]]; then
+        # Only react if we actually armed the alarm in pre — protects
+        # against spurious "wakealarm empty" reads when nothing was set
+        if [[ ! -f "$ARMED_FILE" ]]; then
+            exit 0
+        fi
+        rm -f "$ARMED_FILE"
+        ALARM=$(cat "$WAKEALARM" 2>/dev/null)
+        if [[ -z "$ALARM" || "$ALARM" == "0" ]]; then
+            # RTC fired (kernel cleared the alarm) → schedule hibernate
+            logger -t delayed-hibernate "RTC wake detected, scheduling hibernate in 5s"
+            systemd-run --no-block --on-active=5s --description="Delayed hibernate trigger" systemctl hibernate
+        else
+            # User wake (alarm still pending) → cancel
+            echo 0 > "$WAKEALARM" 2>/dev/null
+            logger -t delayed-hibernate "user wake, canceled RTC alarm"
+        fi
+    fi
+    HOOKEOF
+        sudo chmod 755 "$DELAY_HOOK"
+        echo "${green}${b}✓${n} Delayed hibernate hook installed"
+    }
+
+    remove_delayed_hibernate_hook() {
+        if [[ -f "$DELAY_HOOK" ]]; then
+            sudo rm -f "$DELAY_HOOK"
+            echo "${green}${b}✓${n} Delayed hibernate hook removed"
+        fi
     }
 
     install_bench() {
         sudo mkdir -p /etc/systemd/system-sleep
         sudo tee "$BENCH_HOOK" > /dev/null << 'BENCHEOF'
     #!/bin/bash
-    # Log battery state for power drain benchmarking around suspend-then-hibernate
-    [[ "$2" == "suspend-then-hibernate" ]] || exit 0
+    # Log battery state for power drain benchmarking around sleep cycles
+    [[ "$2" == "suspend" || "$2" == "suspend-then-hibernate" || "$2" == "hibernate" ]] || exit 0
 
     bat=/sys/class/power_supply/BAT1
     [[ -d "$bat" ]] || bat=/sys/class/power_supply/BAT0
@@ -1783,16 +1906,31 @@ setup-hibernate:
         fi
 
         # Hibernate delay
-        if [[ -f "$HIBERNATE_CONF" ]]; then
-            CURRENT_DELAY=$(grep "HibernateDelaySec" "$HIBERNATE_CONF" 2>/dev/null | cut -d= -f2 || echo "?")
+        if [[ -f "$DELAY_FILE" ]]; then
+            CURRENT_DELAY=$(cat "$DELAY_FILE" 2>/dev/null || echo "?")
             echo "  Hibernate delay:  ${green}${b}✓${n} ${CURRENT_DELAY}"
         else
             echo "  Hibernate delay:  · not configured"
         fi
 
+        # Hibernate on AC behavior
+        HAC=$(cat "$AC_FILE" 2>/dev/null || echo "no")
+        if [[ "$HAC" == "yes" ]]; then
+            echo "  Hibernate on AC:  ${yellow}yes${n} (hibernate even when plugged in)"
+        else
+            echo "  Hibernate on AC:  no  (suspend only when plugged in)"
+        fi
+
+        # Delayed hibernate hook
+        if [[ -f "$DELAY_HOOK" ]]; then
+            echo "  Delayed hib hook: ${green}${b}✓${n} installed (journalctl -t delayed-hibernate)"
+        else
+            echo "  Delayed hib hook: · not installed"
+        fi
+
         # Logind
         if [[ -f "$LOGIND_CONF" ]]; then
-            echo "  Lid close action: ${green}${b}✓${n} suspend-then-hibernate"
+            echo "  Lid close action: ${green}${b}✓${n} suspend (delayed hibernate via hook)"
         else
             echo "  Lid close action: · not configured"
         fi
@@ -1824,25 +1962,46 @@ setup-hibernate:
                 BENCH_ACTION="Enable battery benchmark hook"
             fi
 
+            HAC_NOW=$(cat "$AC_FILE" 2>/dev/null || echo "no")
+            if [[ "$HAC_NOW" == "yes" ]]; then
+                AC_ACTION="Disable hibernate on AC (suspend only on AC)"
+            else
+                AC_ACTION="Enable hibernate on AC (always hibernate after delay)"
+            fi
+
             ACTION=$(choose_menu "Select an option:" \
                 "Change hibernate delay" \
+                "$AC_ACTION" \
                 "Reconfigure logind (lid close)" \
+                "Reinstall delayed hibernate hook" \
                 "$BENCH_ACTION" \
                 "Done")
 
             case "$ACTION" in
                 "Change hibernate delay")
-                    CURRENT_DELAY=$(grep "HibernateDelaySec" "$HIBERNATE_CONF" 2>/dev/null | cut -d= -f2 || echo "30min")
+                    CURRENT_DELAY=$(cat "$DELAY_FILE" 2>/dev/null || echo "30min")
                     echo "Current delay: ${b}${CURRENT_DELAY}${n}"
                     echo ""
                     DELAY=$(choose_menu "Select hibernate delay:" "${DELAY_OPTIONS[@]}")
+                    if [[ "$DELAY" == "Custom..." ]]; then
+                        DELAY=$(prompt_custom_delay) || DELAY=""
+                    fi
                     if [[ -n "$DELAY" ]]; then
                         set_delay "$DELAY"
                         echo "  Takes effect on next suspend (no reboot needed)"
                     fi
                     ;;
+                "Enable hibernate on AC (always hibernate after delay)")
+                    set_hibernate_on_ac yes
+                    ;;
+                "Disable hibernate on AC (suspend only on AC)")
+                    set_hibernate_on_ac no
+                    ;;
                 "Reconfigure logind (lid close)")
                     set_logind
+                    ;;
+                "Reinstall delayed hibernate hook")
+                    install_delayed_hibernate_hook
                     ;;
                 "Enable battery benchmark hook")
                     install_bench
@@ -1895,6 +2054,9 @@ setup-hibernate:
     # Choose hibernate delay
     echo "  Default delay: 30min (suspend for 30 minutes, then hibernate)"
     DELAY=$(choose_menu "Select hibernate delay:" "${DELAY_OPTIONS[@]}")
+    if [[ "$DELAY" == "Custom..." ]]; then
+        DELAY=$(prompt_custom_delay) || DELAY=""
+    fi
     if [[ -z "$DELAY" ]]; then
         DELAY="30min"
     fi
@@ -2003,9 +2165,20 @@ setup-hibernate:
     fi
     echo ""
 
-    # Step 7: Configure systemd sleep
-    echo "${cyan}Step 7: Configure suspend-then-hibernate${n}"
+    # Step 7: Write delay state and install delayed hibernate hook
+    # Bypasses systemd's broken suspend-then-hibernate (issue #38193) by
+    # using an RTC alarm + sleep hook to schedule hibernate from a clean
+    # awake state. See plan in /etc/rocinante/.
+    echo "${cyan}Step 7: Configure delayed hibernate (${DELAY})${n}"
+    # Remove any legacy sleep.conf.d/hibernate.conf from the old s2h
+    # approach so it doesn't confuse `systemd-analyze cat-config` later
+    if [[ -f /etc/systemd/sleep.conf.d/hibernate.conf ]]; then
+        sudo rm -f /etc/systemd/sleep.conf.d/hibernate.conf
+        echo "${yellow}·${n} Removed legacy /etc/systemd/sleep.conf.d/hibernate.conf"
+    fi
     set_delay "$DELAY"
+    set_hibernate_on_ac no
+    install_delayed_hibernate_hook
     echo ""
 
     # Step 8: Configure logind for lid close
@@ -2014,7 +2187,7 @@ setup-hibernate:
     echo ""
 
     # Step 9: Install battery benchmark sleep hook
-    # Logs battery state on pre/post suspend-then-hibernate so the user can
+    # Logs battery state on pre/post suspend cycles so the user can
     # measure power drain across cycles via: journalctl -t hibernate-bench
     echo "${cyan}Step 9: Install battery benchmark hook${n}"
     install_bench
@@ -2024,15 +2197,20 @@ setup-hibernate:
     echo "${green}${b}Setup complete!${n}"
     echo ""
     echo "${b}What was configured:${n}"
-    echo "  • Swapfile: /var/swap/swapfile (${SWAP_GB}GB)"
-    echo "  • Kernel: resume=UUID=${RESUME_UUID} resume_offset=${RESUME_OFFSET}"
-    echo "  • Dracut: resume module enabled"
-    echo "  • Sleep: suspend-then-hibernate with ${DELAY} delay"
-    echo "  • Logind: lid close triggers suspend-then-hibernate"
-    echo "  • Bench:  battery drain logged to journal (tag: hibernate-bench)"
+    echo "  • Swapfile:  /var/swap/swapfile (${SWAP_GB}GB)"
+    echo "  • Kernel:    resume=UUID=${RESUME_UUID} resume_offset=${RESUME_OFFSET}"
+    echo "  • Dracut:    resume module enabled"
+    echo "  • Delay:     ${DELAY} (state in /etc/rocinante/hibernate-delay)"
+    echo "  • On AC:     suspend only (no hibernate while plugged in)"
+    echo "  • Hook:      /etc/systemd/system-sleep/10-delayed-hibernate.sh"
+    echo "  • Logind:    lid close triggers suspend (hook handles delayed hibernate)"
+    echo "  • Bench:     battery drain logged to journal (tag: hibernate-bench)"
     echo ""
-    echo "${b}On lid close:${n} suspend → ${DELAY} → hibernate → zero battery drain"
-    echo "${b}On wake:${n} instant (within ${DELAY}) or ~15s resume (after hibernate)"
+    echo "${b}On lid close (battery):${n} suspend → ${DELAY} → RTC wake → hibernate"
+    echo "${b}On lid close (AC):${n}      suspend (stays suspended, no hibernate)"
+    echo "${b}On lid open:${n}            instant resume from suspend, or ~15s resume + LUKS from hibernate"
+    echo ""
+    echo "${b}Inspect with:${n} ${b}journalctl -t delayed-hibernate${n} and ${b}journalctl -t hibernate-bench${n}"
     echo ""
     echo "${yellow}A reboot is required for kernel parameter and initramfs changes.${n}"
     echo ""
@@ -2119,6 +2297,24 @@ remove-hibernate:
     if [[ -f /etc/systemd/system-sleep/00-battery-bench.sh ]]; then
         sudo rm -f /etc/systemd/system-sleep/00-battery-bench.sh
         echo "${green}${b}✓${n} Removed battery benchmark hook"
+    fi
+
+    # Remove delayed hibernate sleep hook + state
+    if [[ -f /etc/systemd/system-sleep/10-delayed-hibernate.sh ]]; then
+        sudo rm -f /etc/systemd/system-sleep/10-delayed-hibernate.sh
+        echo "${green}${b}✓${n} Removed delayed hibernate hook"
+    fi
+    if [[ -f /etc/rocinante/hibernate-delay ]]; then
+        sudo rm -f /etc/rocinante/hibernate-delay
+        echo "${green}${b}✓${n} Removed /etc/rocinante/hibernate-delay"
+    fi
+    if [[ -f /etc/rocinante/hibernate-on-ac ]]; then
+        sudo rm -f /etc/rocinante/hibernate-on-ac
+        echo "${green}${b}✓${n} Removed /etc/rocinante/hibernate-on-ac"
+    fi
+    if [[ -d /etc/rocinante ]]; then
+        sudo rmdir /etc/rocinante 2>/dev/null && \
+            echo "${green}${b}✓${n} Removed empty /etc/rocinante"
     fi
 
     # Disable initramfs overlay
