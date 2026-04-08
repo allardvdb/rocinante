@@ -81,23 +81,46 @@ fi
 # Clear stale module trees left behind by the erased packages.
 rm -rf /usr/lib/modules/*
 
-# Shim out the kernel-install.d plugins that fire from kernel-core's
-# %posttrans scriptlet. Inside a buildah container environment,
-# `05-rpmostree.install` calls `rpm-ostree kernel-install` which tries
-# to regenerate the initramfs via dracut and fails with "Invalid cross-
-# device link". The shim replaces both plugins with /bin/sh true stubs
-# for the duration of the dnf5 install, then restores them. initramfs
-# gets regenerated on the running system at first boot anyway, so
-# skipping it during the image build is safe.
+# Move every kernel-install.d plugin aside for the duration of the
+# dnf5 transaction. The kernel-core and kernel-modules %posttrans
+# scriptlets run /usr/bin/kernel-install, which invokes each
+# executable plugin under /usr/lib/kernel/install.d/. In a buildah
+# container build environment several of those plugins fail loudly
+# and take the transaction with them:
 #
-# Pattern cribbed verbatim from bazzite's build_files/install-kernel.
-pushd /usr/lib/kernel/install.d >/dev/null
-mv 05-rpmostree.install 05-rpmostree.install.bak
-mv 50-dracut.install 50-dracut.install.bak
-printf '%s\n' '#!/bin/sh' 'exit 0' > 05-rpmostree.install
-printf '%s\n' '#!/bin/sh' 'exit 0' > 50-dracut.install
-chmod +x 05-rpmostree.install 50-dracut.install
-popd >/dev/null
+#   - 05-rpmostree.install  -> tries to run rpm-ostree + dracut to
+#     regenerate the initramfs; dracut fails with "Invalid cross-
+#     device link" inside the overlayfs build mount
+#   - 20-grub.install       -> grub2-probe can't canonicalise 'overlay',
+#     grub2-editenv can't write /boot/grub2/grubenv.new
+#   - 50-depmod.install     -> depmod resolves its kernel version via
+#     `uname -r`, which in a container returns the HOST runner's
+#     kernel, and then fails because /lib/modules/<host-kernel> is
+#     absent
+#
+# None of those need to run at image-build time. bootc/ostree
+# regenerates the initramfs and updates the boot config at first
+# boot on the running system.
+#
+# Cannot use KERNEL_INSTALL_BYPASS — kernel-install does not honour
+# it (verified via `strings` on the binary). Can't use
+# KERNEL_INSTALL_LAYOUT=none either — kernel-install still runs the
+# plugins for "other" layouts. The only reliable bypass is to move
+# the plugin files out of the plugin directory entirely and restore
+# them afterwards. Bazzite does a narrower version of the same thing
+# in their install-kernel (PR history).
+INSTALL_D=/usr/lib/kernel/install.d
+INSTALL_D_STASH=/tmp/kernel-install.d.stash
+mkdir -p "${INSTALL_D_STASH}"
+# Sweep every *.install into the stash. The [[ -e ]] guard handles
+# the "no matches" case without needing shopt nullglob.
+STASHED_PLUGINS=()
+for plugin in "${INSTALL_D}"/*.install; do
+    [[ -e "${plugin}" ]] || continue
+    mv "${plugin}" "${INSTALL_D_STASH}/$(basename "${plugin}")"
+    STASHED_PLUGINS+=("$(basename "${plugin}")")
+done
+echo "Stashed ${#STASHED_PLUGINS[@]} kernel-install.d plugins"
 
 # Install the pinned kernel RPMs from the akmods bind mount.
 # Globs match the bluefin pattern (kernel-[0-9]*.rpm catches kernel-<version>
@@ -137,15 +160,16 @@ if [[ "${BASE_IMAGE}" == *nvidia* ]]; then
         "${AKMODS_NVIDIA_SRC}"/rpms/ublue-os/ublue-os-nvidia-addons-*.rpm
 fi
 
-# Restore the real kernel-install.d plugins. Must happen BEFORE
-# versionlock (which is not strictly kernel-install related) and
-# BEFORE the script returns — the actual initramfs regeneration
-# will fire at first boot via bootc/ostree, which needs these
-# plugins in place.
-pushd /usr/lib/kernel/install.d >/dev/null
-mv -f 05-rpmostree.install.bak 05-rpmostree.install
-mv -f 50-dracut.install.bak 50-dracut.install
-popd >/dev/null
+# Restore every stashed plugin. Subsequent build scripts
+# (10-build.sh → 20-1password.sh → ...) and more importantly the
+# running system at first boot all need these present so that
+# kernel-install works normally. Missing this restore would make the
+# installed image unusable.
+for plugin in "${STASHED_PLUGINS[@]}"; do
+    mv "${INSTALL_D_STASH}/${plugin}" "${INSTALL_D}/${plugin}"
+done
+rmdir "${INSTALL_D_STASH}"
+echo "Restored ${#STASHED_PLUGINS[@]} kernel-install.d plugins"
 
 # Prevent any subsequent dnf5 operation in this or future builds from
 # bumping the kernel. The versionlock plugin is present in bluefin:stable
