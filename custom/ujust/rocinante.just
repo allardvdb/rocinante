@@ -1754,6 +1754,13 @@ setup-hibernate:
     }
 
     install_delayed_hibernate_hook() {
+        # Refuse to install without rtcwake — without it the hook would
+        # write empty wakealarm reads, which the post branch interprets
+        # as "RTC fired" and schedules hibernate on every lid open.
+        if ! command -v rtcwake >/dev/null 2>&1; then
+            echo "${red}${b}Error:${n} rtcwake not found (install util-linux). Hook not installed."
+            return 1
+        fi
         sudo mkdir -p /etc/systemd/system-sleep
         sudo tee "$DELAY_HOOK" > /dev/null << 'HOOKEOF'
     #!/bin/bash
@@ -1766,6 +1773,15 @@ setup-hibernate:
 
     DELAY_FILE=/etc/rocinante/hibernate-delay
     AC_FILE=/etc/rocinante/hibernate-on-ac
+    ARMED_FILE=/run/delayed-hibernate.armed
+    WAKEALARM=/sys/class/rtc/rtc0/wakealarm
+
+    # Defensive: if the wakealarm sysfs path is missing, do nothing.
+    # Without it the post branch can't tell RTC wake from user wake.
+    [[ -e "$WAKEALARM" ]] || {
+        logger -t delayed-hibernate "$WAKEALARM not present, skipping"
+        exit 0
+    }
 
     [[ -f "$DELAY_FILE" ]] || exit 0
     DELAY=$(cat "$DELAY_FILE" 2>/dev/null)
@@ -1773,6 +1789,9 @@ setup-hibernate:
     HIBERNATE_ON_AC=$(cat "$AC_FILE" 2>/dev/null || echo "no")
 
     if [[ "$1" == "pre" ]]; then
+        # Clear any stale breadcrumb from a previous cycle
+        rm -f "$ARMED_FILE"
+
         # If on AC and configured not to hibernate on AC, skip the alarm
         if [[ "$HIBERNATE_ON_AC" == "no" ]]; then
             for ac in /sys/class/power_supply/A*/online; do
@@ -1782,28 +1801,36 @@ setup-hibernate:
                 }
             done
         fi
-        # Convert systemd timespan to seconds and arm RTC
-        US=$(systemd-analyze timespan "$DELAY" 2>/dev/null | awk '/μs:/ {print $2}')
+        # Convert systemd timespan to seconds (LC_ALL=C pins the μs label
+        # against locale-dependent output) and arm RTC
+        US=$(LC_ALL=C systemd-analyze timespan "$DELAY" 2>/dev/null | awk '/μs:/ {print $2}')
         [[ -n "$US" ]] || { logger -t delayed-hibernate "invalid delay '$DELAY'"; exit 0; }
         SECS=$((US / 1000000))
         [[ "$SECS" -gt 0 ]] || exit 0
-        if command -v rtcwake >/dev/null 2>&1; then
-            rtcwake -m no -s "$SECS" >/dev/null 2>&1
+        if rtcwake -m no -s "$SECS" >/dev/null 2>&1; then
+            # Drop a breadcrumb so the post branch knows we successfully armed
+            touch "$ARMED_FILE"
             logger -t delayed-hibernate "armed RTC alarm for ${DELAY} (${SECS}s)"
         else
-            logger -t delayed-hibernate "rtcwake not available, skipping"
+            logger -t delayed-hibernate "rtcwake failed, alarm not armed"
         fi
     fi
 
     if [[ "$1" == "post" ]]; then
-        ALARM=$(cat /sys/class/rtc/rtc0/wakealarm 2>/dev/null)
-        if [[ -z "$ALARM" ]]; then
+        # Only react if we actually armed the alarm in pre — protects
+        # against spurious "wakealarm empty" reads when nothing was set
+        if [[ ! -f "$ARMED_FILE" ]]; then
+            exit 0
+        fi
+        rm -f "$ARMED_FILE"
+        ALARM=$(cat "$WAKEALARM" 2>/dev/null)
+        if [[ -z "$ALARM" || "$ALARM" == "0" ]]; then
             # RTC fired (kernel cleared the alarm) → schedule hibernate
             logger -t delayed-hibernate "RTC wake detected, scheduling hibernate in 5s"
             systemd-run --no-block --on-active=5s --description="Delayed hibernate trigger" systemctl hibernate
         else
             # User wake (alarm still pending) → cancel
-            echo 0 > /sys/class/rtc/rtc0/wakealarm 2>/dev/null
+            echo 0 > "$WAKEALARM" 2>/dev/null
             logger -t delayed-hibernate "user wake, canceled RTC alarm"
         fi
     fi
@@ -2143,6 +2170,12 @@ setup-hibernate:
     # using an RTC alarm + sleep hook to schedule hibernate from a clean
     # awake state. See plan in /etc/rocinante/.
     echo "${cyan}Step 7: Configure delayed hibernate (${DELAY})${n}"
+    # Remove any legacy sleep.conf.d/hibernate.conf from the old s2h
+    # approach so it doesn't confuse `systemd-analyze cat-config` later
+    if [[ -f /etc/systemd/sleep.conf.d/hibernate.conf ]]; then
+        sudo rm -f /etc/systemd/sleep.conf.d/hibernate.conf
+        echo "${yellow}·${n} Removed legacy /etc/systemd/sleep.conf.d/hibernate.conf"
+    fi
     set_delay "$DELAY"
     set_hibernate_on_ac no
     install_delayed_hibernate_hook
