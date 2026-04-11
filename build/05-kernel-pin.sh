@@ -155,14 +155,19 @@ dnf5 -y install \
     "${AKMODS_SRC}"/kernel-rpms/kernel-modules-*.rpm \
     "${AKMODS_SRC}"/kernel-rpms/kernel-devel*.rpm
 
+# Install the akmods-addons package first — it ships the ublue-os COPR
+# repo config needed to resolve framework-laptop-kmod-common (a dependency
+# of kmod-framework-laptop). Aurora:stable doesn't have this repo enabled
+# in its base image, unlike bluefin:stable.
+dnf5 -y install \
+    "${AKMODS_SRC}"/rpms/ublue-os/ublue-os-akmods-addons-*.rpm
+
 # Install matching common kmods. We only restore what rocinante actually
 # uses: framework-laptop (FW13 hardware support) and v4l2loopback (OBS
 # virtual cameras). Skip wl, xone, xpadneo, openrazer — not needed here.
 dnf5 -y install \
-    framework-laptop-kmod-common \
     "${AKMODS_SRC}"/rpms/kmods/kmod-framework-laptop-*.rpm \
-    "${AKMODS_SRC}"/rpms/kmods/kmod-v4l2loopback-*.rpm \
-    "${AKMODS_SRC}"/rpms/ublue-os/ublue-os-akmods-addons-*.rpm
+    "${AKMODS_SRC}"/rpms/kmods/kmod-v4l2loopback-*.rpm
 
 # Install matching ZFS kmod + userspace built against the pinned kernel.
 # Mirror bluefin PR #4187's ZFS_RPMS list (version-number suffixes avoid
