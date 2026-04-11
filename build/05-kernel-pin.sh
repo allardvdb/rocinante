@@ -159,7 +159,7 @@ dnf5 -y install \
 # uses: framework-laptop (FW13 hardware support) and v4l2loopback (OBS
 # virtual cameras). Skip wl, xone, xpadneo, openrazer — not needed here.
 dnf5 -y install \
-    "${AKMODS_SRC}"/rpms/kmods/framework-laptop-kmod-common-*.rpm \
+    framework-laptop-kmod-common \
     "${AKMODS_SRC}"/rpms/kmods/kmod-framework-laptop-*.rpm \
     "${AKMODS_SRC}"/rpms/kmods/kmod-v4l2loopback-*.rpm \
     "${AKMODS_SRC}"/rpms/ublue-os/ublue-os-akmods-addons-*.rpm
