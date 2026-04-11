@@ -121,9 +121,10 @@ rm -rf /usr/lib/modules/*
 #     kernel, and then fails because /lib/modules/<host-kernel> is
 #     absent
 #
-# None of those need to run at image-build time. bootc/ostree
-# regenerates the initramfs and updates the boot config at first
-# boot on the running system.
+# None of those need to run at image-build time — boot config is
+# handled by bootc at deploy time. However, the initramfs MUST be
+# generated inside the container image (dracut + depmod are called
+# explicitly after the kernel install, below the plugin restore).
 #
 # Cannot use KERNEL_INSTALL_BYPASS — kernel-install does not honour
 # it (verified via `strings` on the binary). Can't use
@@ -158,6 +159,7 @@ dnf5 -y install \
 # uses: framework-laptop (FW13 hardware support) and v4l2loopback (OBS
 # virtual cameras). Skip wl, xone, xpadneo, openrazer — not needed here.
 dnf5 -y install \
+    "${AKMODS_SRC}"/rpms/kmods/framework-laptop-kmod-common-*.rpm \
     "${AKMODS_SRC}"/rpms/kmods/kmod-framework-laptop-*.rpm \
     "${AKMODS_SRC}"/rpms/kmods/kmod-v4l2loopback-*.rpm \
     "${AKMODS_SRC}"/rpms/ublue-os/ublue-os-akmods-addons-*.rpm
@@ -197,6 +199,14 @@ for plugin in "${STASHED_PLUGINS[@]}"; do
 done
 rmdir "${INSTALL_D_STASH}"
 echo "Restored ${#STASHED_PLUGINS[@]} kernel-install.d plugins"
+
+# Generate module dependency map and initramfs for the pinned kernel.
+# The kernel-install plugins were stashed during dnf5 install to avoid
+# failures in the container build environment, so neither depmod nor
+# dracut ran via %posttrans. We must run them explicitly.
+depmod "${KERNEL_PIN}"
+dracut --force --kver "${KERNEL_PIN}" \
+    /usr/lib/modules/"${KERNEL_PIN}"/initramfs.img
 
 # Prevent any subsequent dnf5 operation in this or future builds from
 # bumping the kernel. The versionlock plugin is present in bluefin:stable
