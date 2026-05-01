@@ -23,11 +23,21 @@ echo "::group:: Override broken Fedora incus-agent with upstream binary"
 # `incus list`. Replace with the upstream prebuilt static binary, version-
 # matched to the installed `incus` package so host + agent stay in sync.
 INCUS_VERSION="$(rpm -q --queryformat '%{VERSION}' incus)"
-INCUS_AGENT_URL="https://github.com/lxc/incus/releases/download/v${INCUS_VERSION}/bin.linux.incus-agent.x86_64"
-echo "Validating upstream agent URL: ${INCUS_AGENT_URL}"
-if ! curl -sf -I --max-time 10 --retry 2 "${INCUS_AGENT_URL}" > /dev/null; then
-    echo "ERROR: upstream incus-agent not found at ${INCUS_AGENT_URL}"
-    echo "The Fedora incus version (${INCUS_VERSION}) may not have a matching upstream tag."
+# Fedora's RPM strips trailing ".0" from upstream's semver tags (e.g. RPM
+# version 6.23 corresponds to upstream tag v6.23.0). Probe both forms.
+INCUS_TAG_CANDIDATES=("v${INCUS_VERSION}" "v${INCUS_VERSION}.0")
+INCUS_AGENT_URL=""
+for tag in "${INCUS_TAG_CANDIDATES[@]}"; do
+    candidate="https://github.com/lxc/incus/releases/download/${tag}/bin.linux.incus-agent.x86_64"
+    echo "Probing upstream agent URL: ${candidate}"
+    if curl -sf -I --max-time 10 --retry 2 "${candidate}" > /dev/null; then
+        INCUS_AGENT_URL="${candidate}"
+        break
+    fi
+done
+if [[ -z "${INCUS_AGENT_URL}" ]]; then
+    echo "ERROR: upstream incus-agent not found for Fedora incus version ${INCUS_VERSION}"
+    echo "Tried tags: ${INCUS_TAG_CANDIDATES[*]}"
     exit 1
 fi
 curl -fL --retry 3 --max-time 60 -o /usr/bin/incus-agent "${INCUS_AGENT_URL}"
