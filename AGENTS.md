@@ -33,6 +33,7 @@ This is a custom Universal Blue / Bluefin Linux image that creates a personalize
 │       ├── validate-justfiles.yml   # Justfile format check on PRs
 │       └── validate-shellcheck.yml  # Shellcheck on build/*.sh on PRs
 ├── build/                     # Build scripts (numbered, run during image build)
+│   ├── 05-framework-kmod.sh  # kmod-framework-laptop install from akmods bind-mount
 │   ├── 10-build.sh           # Main orchestrator (brew, packages, ujust, systemd)
 │   ├── 20-1password.sh       # 1Password desktop + CLI installation
 │   ├── 30-incus.sh           # Incus VM manager + QEMU/SPICE/VFIO
@@ -67,6 +68,7 @@ This means build scripts and custom files are never `COPY`'d into the final imag
 
 ### How build scripts work
 - `build/10-build.sh` is the main orchestrator:
+  - Calls `05-framework-kmod.sh` first (installs framework-laptop kmod from akmods bind-mount, version-matched to the base image)
   - Installs Homebrew via `rsync` from `/ctx/oci/brew/`
   - Copies Brewfiles to `/usr/share/ublue-os/homebrew/`
   - Concatenates `custom/ujust/*.just` into `/usr/share/ublue-os/just/60-custom.just`
@@ -104,6 +106,12 @@ All variants share the same build scripts and customizations. The Containerfile 
 - `brew-setup.service` runs on first boot to initialize Homebrew
 - `brew-update.timer` and `brew-upgrade.timer` keep packages current
 - Brewfiles in `custom/brew/` are copied to `/usr/share/ublue-os/homebrew/`
+
+### Framework Laptop kmod (akmods bind-mount)
+- `build/05-framework-kmod.sh` installs `kmod-framework-laptop-*` (and `ublue-os-akmods-addons` for the COPR repo config) from a bind-mounted akmods stage.
+- The akmods tag is `coreos-stable-43-${BASE_KERNEL}`. `${BASE_KERNEL}` is discovered by the workflow via `skopeo inspect` of the base image's `ostree.linux` label — **not** pinned.
+- This is **not** a kernel pin: kernel + initramfs come from the base image untouched. See the addendum in `docs/amdgpu-strix-point-gpu-hang.md` for the three structural differences from the deleted pin that make the dracut/ostree bug class unreachable from this path.
+- Failure mode: if `bluefin:stable` runs ahead of `ublue-os/akmods` publishing the matching tag, the Containerfile `FROM` resolution fails. Retry CI; no bricked image.
 
 ### Kernel Pin (removed 2026-05-01)
 - The build no longer pins the kernel; the upstream Bluefin base supplies it.

@@ -4,6 +4,11 @@ set -eoux pipefail
 source /ctx/build/copr-helpers.sh
 shopt -s nullglob
 
+# Restore framework-laptop kmod (lost when the kernel pin was removed in
+# PR #85). Must run before any other dnf5 operation that could pull
+# kernel-coupled packages.
+/ctx/build/05-framework-kmod.sh
+
 echo "::group:: Install Brew"
 rsync -rvK /ctx/oci/brew/ /
 systemctl preset brew-setup.service
@@ -45,6 +50,10 @@ echo "::endgroup::"
 echo "::group:: System Configuration"
 systemctl enable podman.socket
 systemctl disable pcscd.socket
+# systemd-remount-fs cannot succeed on composefs root (kernel rejects
+# 'overlay: No changes allowed in reconfigure'). Mask to silence the
+# spurious failed-unit alert at every boot.
+systemctl mask systemd-remount-fs.service
 echo "::endgroup::"
 
 # Run additional build scripts

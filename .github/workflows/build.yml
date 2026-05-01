@@ -100,6 +100,20 @@ jobs:
           sep-tags: " "
           sep-annotations: " "
 
+      - name: Detect Base Kernel
+        id: detect_kernel
+        env:
+          BASE_IMAGE: ${{ matrix.base_image }}
+        run: |
+          set -euo pipefail
+          kernel=$(skopeo inspect "docker://${BASE_IMAGE}" | jq -r '.Labels."ostree.linux"')
+          if [[ -z "${kernel}" || "${kernel}" == "null" ]]; then
+              echo "ERROR: could not read ostree.linux label from ${BASE_IMAGE}" >&2
+              exit 1
+          fi
+          echo "Detected base kernel: ${kernel}"
+          echo "kernel=${kernel}" >> "${GITHUB_OUTPUT}"
+
       - name: Build Image
         id: build_image
         uses: redhat-actions/buildah-build@7a95fa7ee0f02d552a32753e7414641a04307056 # v2
@@ -111,6 +125,7 @@ jobs:
           labels: ${{ steps.metadata.outputs.labels }}
           build-args: |
             BASE_IMAGE=${{ matrix.base_image }}
+            BASE_KERNEL=${{ steps.detect_kernel.outputs.kernel }}
           oci: false
 
       # Rechunk is a script that we use on Universal Blue to make sure there isnt a single huge layer when your image gets published.
