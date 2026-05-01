@@ -63,6 +63,36 @@ the bad invocation entirely. If the pin ever needs to come back,
 generate the initramfs via `kernel-install` rather than a bare `dracut`
 call, or pass `--no-hostonly --add ostree` explicitly.
 
+### Framework-laptop kmod sourcing (post-pin-removal follow-up)
+
+`kmod-framework-laptop-*` is no longer in the upstream Bluefin base; it
+was previously installed by the deleted kernel-pin script. It is now
+restored by `build/05-framework-kmod.sh`, which runs first in the
+build orchestrator. The kmod is sourced from
+`ghcr.io/ublue-os/akmods:coreos-stable-43-${BASE_KERNEL}` via a
+Containerfile `FROM ... AS akmods-src` stage and a bind-mount on the
+build `RUN`. `${BASE_KERNEL}` is discovered by the workflow via
+`skopeo inspect` of the base image's `ostree.linux` label — there is
+no local pin.
+
+This sourcing path is **structurally distinct** from the deleted pin
+in three ways that make the prior failure modes unreachable:
+
+1. The kernel is not erased. `dnf5 install` only adds the kmod RPM;
+   `vmlinuz` and the kernel's own RPMs are untouched.
+2. `dracut` is not invoked. The base image's pre-baked initramfs is
+   used as-is, so the missing-`ostree`-module bug that bricked
+   `latest.20260419` cannot recur.
+3. No `dnf5 versionlock` is applied. If a future build pulls a newer
+   kernel from the base, dnf5 is free to install the matching kmod
+   from `akmods-src`.
+
+Failure mode this path *can* exhibit: if `bluefin:stable` ships a new
+kernel before `ublue-os/akmods` rebuilds the matching tag, the
+Containerfile `FROM` resolution fails and CI errors out at the akmods
+stage. Acceptable; retry CI when akmods catches up. No bricked image,
+no system in a weird state.
+
 The text below is retained as historical record of why the pin existed
 between PR #77 (2026-04-09) and 2026-05-01.
 
