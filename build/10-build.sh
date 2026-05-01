@@ -45,6 +45,10 @@ echo "::endgroup::"
 echo "::group:: System Configuration"
 systemctl enable podman.socket
 systemctl disable pcscd.socket
+# systemd-remount-fs cannot succeed on composefs root (kernel rejects
+# 'overlay: No changes allowed in reconfigure'). Mask to silence the
+# spurious failed-unit alert at every boot.
+systemctl mask systemd-remount-fs.service
 echo "::endgroup::"
 
 # Run additional build scripts
