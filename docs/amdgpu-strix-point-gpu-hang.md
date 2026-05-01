@@ -40,11 +40,37 @@ This is a known upstream bug in the `amdgpu` driver affecting Strix Point GPUs. 
 - **Kernel**: 6.17.x (known good range; 6.18.x and 6.19.x are **worse**)
 - **Firmware**: linux-firmware-20260110
 
-## Build-time kernel pin (rocinante)
+## Status: pin removed 2026-05-01
 
-Since PR #77, the rocinante image pins the kernel to **6.17.12-300.fc43.x86_64**
-at build time via `build/05-kernel-pin.sh`. This prevents the image from
-inheriting whichever kernel `ghcr.io/ublue-os/bluefin:stable` happens to
+The kernel pin was removed under exit criterion (3) below, driven by
+**CVE-2026-31431** ("Copy Fail", `algif_aead` LPE) which requires kernel
+≥ 6.19.12-200.fc43. Last known-bad observation on Strix Point was 6.19.7
+(2026-04-07); 6.19.12 has had ~3 weeks of upstream stable patches since.
+Verification contract: at least one work session on the Framework 13 AMD
+with no `MES failed to respond` in `journalctl -k`. If reproduced, revert
+the pin-removal commits (single revert restores the pin) and reopen.
+
+Note on the dracut bug we discovered while removing the pin: the
+`dracut --force` invocation in the old `build/05-kernel-pin.sh` (added
+by d9f4ffc) ran inside the container build with neither `--no-hostonly`
+nor `--add ostree`, and `/run/ostree-booted` was absent. The resulting
+initramfs lacked the **ostree dracut module**, so on boot
+`ostree-prepare-root` never ran, `/sysroot` was mounted as a plain btrfs
+subvol, and `switch_root` failed with "Specified switch root path
+'/sysroot' does not seem to be an OS tree. os-release file is missing."
+This bricked image `latest.20260419` on the laptop. Pin removal deletes
+the bad invocation entirely. If the pin ever needs to come back,
+generate the initramfs via `kernel-install` rather than a bare `dracut`
+call, or pass `--no-hostonly --add ostree` explicitly.
+
+The text below is retained as historical record of why the pin existed
+between PR #77 (2026-04-09) and 2026-05-01.
+
+## Build-time kernel pin (rocinante) — historical
+
+Since PR #77, the rocinante image pinned the kernel to **6.17.12-300.fc43.x86_64**
+at build time via `build/05-kernel-pin.sh`. This prevented the image from
+inheriting whichever kernel `ghcr.io/ublue-os/bluefin:stable` happened to
 ship — upstream bluefin crossed into the bad 6.18.x range on 2026-03-03
 and then into 6.19.7 on 2026-04-07, at which point the MES hang became
 reproducible on Framework 13 AMD during normal use.
