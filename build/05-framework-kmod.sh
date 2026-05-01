@@ -30,15 +30,24 @@ dnf5 -y install /akmods-src/rpms/ublue-os/ublue-os-akmods-addons-*.rpm
 
 # Install the kmod for the running kernel. The akmods image's RPM filenames
 # encode the kernel version, so a glob across kmod-framework-laptop-*
-# matches exactly the build for ${BASE_KERNEL}.
+# matches exactly the build for ${BASE_KERNEL}. dnf5 fails loud if the
+# glob is empty or the install conflicts.
+#
+# Note: bluefin:stable already ships kmod-framework-laptop, so dnf5 will
+# report "already installed" on rocinante / rocinante-nvidia and proceed
+# silently. aurora:stable does not, and dnf5 will install it freshly. Both
+# paths are intentional.
 dnf5 -y install /akmods-src/rpms/kmods/kmod-framework-laptop-*.rpm
 
-# Sanity-check: the installed kmod's version must contain the kernel.
-if ! rpm -q kmod-framework-laptop --qf '%{VERSION}\n' | grep -q "${BASE_KERNEL%.x86_64}"; then
-    echo "ERROR: installed kmod-framework-laptop does not match BASE_KERNEL=${BASE_KERNEL}"
-    rpm -q kmod-framework-laptop --qf 'installed: %{NVR}\n'
+# Sanity-check: confirm the package is present after the install. The
+# kmod's RPM metadata does NOT encode the kernel version in the Name or
+# Version fields (only in the .rpm filename), so a stricter version
+# match would be misleading; rely instead on the bind-mount tag being
+# coreos-stable-43-${BASE_KERNEL} for kernel correctness.
+if ! rpm -q kmod-framework-laptop > /dev/null 2>&1; then
+    echo "ERROR: kmod-framework-laptop is not installed after dnf5"
     exit 1
 fi
-echo "Installed kmod-framework-laptop matching ${BASE_KERNEL}"
+echo "kmod-framework-laptop present: $(rpm -q kmod-framework-laptop --qf '%{NVR}.%{ARCH}\n')"
 
 echo "::endgroup::"
