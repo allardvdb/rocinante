@@ -111,7 +111,6 @@ jobs:
           labels: ${{ steps.metadata.outputs.labels }}
           build-args: |
             BASE_IMAGE=${{ matrix.base_image }}
-            KERNEL_PIN=6.17.12-300.fc43.x86_64
           oci: false
 
       # Rechunk is a script that we use on Universal Blue to make sure there isnt a single huge layer when your image gets published.
