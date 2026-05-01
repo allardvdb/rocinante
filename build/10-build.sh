@@ -4,10 +4,6 @@ set -eoux pipefail
 source /ctx/build/copr-helpers.sh
 shopt -s nullglob
 
-# Pin the kernel FIRST, before any other dnf operations that could pull
-# in kernel-version-coupled packages. See build/05-kernel-pin.sh.
-/ctx/build/05-kernel-pin.sh
-
 echo "::group:: Install Brew"
 rsync -rvK /ctx/oci/brew/ /
 systemctl preset brew-setup.service
