@@ -4,6 +4,11 @@ set -eoux pipefail
 source /ctx/build/copr-helpers.sh
 shopt -s nullglob
 
+# Restore framework-laptop kmod (lost when the kernel pin was removed in
+# PR #85). Must run before any other dnf5 operation that could pull
+# kernel-coupled packages.
+/ctx/build/05-framework-kmod.sh
+
 echo "::group:: Install Brew"
 rsync -rvK /ctx/oci/brew/ /
 systemctl preset brew-setup.service
