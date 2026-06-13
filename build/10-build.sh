@@ -4,11 +4,6 @@ set -eoux pipefail
 source /ctx/build/copr-helpers.sh
 shopt -s nullglob
 
-# Restore framework-laptop kmod (lost when the kernel pin was removed in
-# PR #85). Must run before any other dnf5 operation that could pull
-# kernel-coupled packages.
-/ctx/build/05-framework-kmod.sh
-
 echo "::group:: Install Brew"
 rsync -rvK /ctx/oci/brew/ /
 systemctl preset brew-setup.service
@@ -24,16 +19,6 @@ cp /ctx/custom/brew/*.Brewfile /usr/share/ublue-os/homebrew/
 sed -i '/^alias switch-stream/d' /usr/share/ublue-os/just/system.just
 # Ujust recipes → 60-custom.just (bluefin's 00-entry.just imports this)
 find /ctx/custom/ujust -iname '*.just' -exec printf "\n\n" \; -exec cat {} \; >> /usr/share/ublue-os/just/60-custom.just
-# Udev rules
-if [ -d /ctx/custom/udev ]; then
-    echo ":: Installing custom udev rules"
-    cp /ctx/custom/udev/*.rules /etc/udev/rules.d/
-fi
-# Systemd sleep hooks
-if [ -d /ctx/custom/systemd/system-sleep ]; then
-    echo ":: Installing systemd sleep hooks"
-    install -m 0755 /ctx/custom/systemd/system-sleep/*.sh /usr/lib/systemd/system-sleep/
-fi
 # SKILL.md → /usr/share/rocinante/ (AI agent context for running system)
 mkdir -p /usr/share/rocinante
 cp /ctx/SKILL.md /usr/share/rocinante/SKILL.md
@@ -60,7 +45,6 @@ echo "::endgroup::"
 /ctx/build/20-1password.sh
 /ctx/build/30-incus.sh
 /ctx/build/40-rocm.sh
-/ctx/build/50-firmware.sh
 
 shopt -u nullglob
 echo "Build complete!"

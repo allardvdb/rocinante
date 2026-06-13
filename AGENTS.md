@@ -11,6 +11,14 @@
 - Create a PR for review before merging
 - Use descriptive branch names (e.g., `fix-1password-docs`, `add-new-recipe`)
 
+### Diagnostics & logs
+
+Hardware diagnostic dumps and logs (e.g. `rdsosreport`, smoke-test output, `journalctl`
+captures) often contain sensitive data and must never be committed. Always write them
+**outside the repo**, or into the repo's gitignored `laptop-diag/` or `diag/` directory
+(both are recursively ignored). Never stage them — prefer `git add -p`/explicit paths over
+`git add -A`.
+
 ## Repository Overview
 
 This is a custom Universal Blue / Bluefin Linux image that creates a personalized developer workstation based on Fedora Atomic Desktop (Silverblue for GNOME, Kinoite for KDE). The image is built using GitHub Actions and published to GitHub Container Registry (ghcr.io).
@@ -33,21 +41,14 @@ This is a custom Universal Blue / Bluefin Linux image that creates a personalize
 │       ├── validate-justfiles.yml   # Justfile format check on PRs
 │       └── validate-shellcheck.yml  # Shellcheck on build/*.sh on PRs
 ├── build/                     # Build scripts (numbered, run during image build)
-│   ├── 05-framework-kmod.sh  # kmod-framework-laptop install from akmods bind-mount
 │   ├── 10-build.sh           # Main orchestrator (brew, packages, ujust, systemd)
 │   ├── 20-1password.sh       # 1Password desktop + CLI installation
 │   ├── 30-incus.sh           # Incus VM manager + QEMU/SPICE/VFIO
 │   ├── 40-rocm.sh            # AMD ROCm compute stack
-│   ├── 50-firmware.sh        # linux-firmware version override (Koji)
 │   └── copr-helpers.sh       # COPR helper functions (sourced by build scripts)
 ├── custom/                    # Custom files copied into the image at build time
 │   ├── brew/                  # Brewfiles for Homebrew packages
 │   │   └── default.Brewfile  # Default package list
-│   ├── systemd/
-│   │   └── system-sleep/
-│   │       └── 50-unmount-fuse.sh  # GVFS/FUSE unmount before suspend
-│   ├── udev/
-│   │   └── 99-disable-goodix-fingerprint.rules  # Disable fingerprint reader (S0ix)
 │   └── ujust/                 # Custom ujust recipes
 │       └── rocinante.just    # Rocinante-specific recipes (→ 60-custom.just)
 ├── disk_config/               # Disk image configurations (ISO, QCOW2, KDE/GNOME)
@@ -68,15 +69,12 @@ This means build scripts and custom files are never `COPY`'d into the final imag
 
 ### How build scripts work
 - `build/10-build.sh` is the main orchestrator:
-  - Calls `05-framework-kmod.sh` first (installs framework-laptop kmod from akmods bind-mount, version-matched to the base image)
   - Installs Homebrew via `rsync` from `/ctx/oci/brew/`
   - Copies Brewfiles to `/usr/share/ublue-os/homebrew/`
   - Concatenates `custom/ujust/*.just` into `/usr/share/ublue-os/just/60-custom.just`
-  - Copies udev rules from `custom/udev/` to `/etc/udev/rules.d/`
-  - Installs systemd sleep hooks from `custom/systemd/system-sleep/` to `/usr/lib/systemd/system-sleep/`
   - Installs dnf5 packages
   - Configures systemd units
-  - Calls additional numbered scripts (`20-1password.sh`, `30-incus.sh`, `40-rocm.sh`, `50-firmware.sh`)
+  - Calls additional numbered scripts (`20-1password.sh`, `30-incus.sh`, `40-rocm.sh`)
 
 ### ujust recipes (60-custom.just)
 Bluefin's `00-entry.just` includes `import? "/usr/share/ublue-os/just/60-custom.just"`. The build script concatenates all `.just` files from `custom/ujust/` into this file, so recipes are automatically available via `ujust`.
@@ -88,7 +86,7 @@ Three variants are built from different base images:
 - **rocinante-nvidia**: `ghcr.io/ublue-os/bluefin-nvidia-open:stable` (GNOME + NVIDIA)
 - **rocinante-aurora**: `ghcr.io/ublue-os/aurora:stable` (KDE Plasma)
 
-All variants share the same build scripts and customizations. The Containerfile accepts `BASE_IMAGE` (variant selection) and `FIRMWARE_VERSION` (linux-firmware pin, default `20260309`) build args. Developer tools are managed via Homebrew (@ublue-os/brew).
+All variants share the same build scripts and customizations. The Containerfile accepts a single `BASE_IMAGE` build arg (variant selection). Developer tools are managed via Homebrew (@ublue-os/brew).
 
 ## Key Customizations
 
@@ -107,32 +105,24 @@ All variants share the same build scripts and customizations. The Containerfile 
 - `brew-update.timer` and `brew-upgrade.timer` keep packages current
 - Brewfiles in `custom/brew/` are copied to `/usr/share/ublue-os/homebrew/`
 
-### Framework Laptop kmod (akmods bind-mount)
-- `build/05-framework-kmod.sh` installs `kmod-framework-laptop-*` (and `ublue-os-akmods-addons` for the COPR repo config) from a bind-mounted akmods stage.
-- The akmods tag is `coreos-stable-43-${BASE_KERNEL}`. `${BASE_KERNEL}` is discovered by the workflow via `skopeo inspect` of the base image's `ostree.linux` label — **not** pinned.
-- This is **not** a kernel pin: kernel + initramfs come from the base image untouched. See the addendum in `docs/amdgpu-strix-point-gpu-hang.md` for the three structural differences from the deleted pin that make the dracut/ostree bug class unreachable from this path.
-- Failure mode: if `bluefin:stable` runs ahead of `ublue-os/akmods` publishing the matching tag, the Containerfile `FROM` resolution fails. Retry CI; no bricked image.
+### Suspend
+- Plain s2idle suspend (Bluefin default); suspend-then-hibernate support was removed 2026-06-13.
 
-### Kernel Pin (removed 2026-05-01)
-- The build no longer pins the kernel; the upstream Bluefin base supplies it.
-- Removed under exit criterion (3) of `docs/amdgpu-strix-point-gpu-hang.md`, driven by CVE-2026-31431 which requires kernel ≥ 6.19.12-200.fc43.
-- See the historical section in that doc for context if it ever needs to come back. **Do not** reinstate a bare `dracut --force` invocation in a future pin script — it produces an initramfs missing the ostree dracut module and bricks boot.
+### Kernel & hardware workarounds (removed 2026-06-13)
+When the base advanced to **Fedora 44 / kernel 7.0** (which carries the upstream amdgpu
+gfx1150 MES and framework-laptop fixes these compensated for), the full Strix Point
+workaround stack was removed:
+- akmods framework-laptop kmod bind-mount (`05-framework-kmod.sh`, the `BASE_KERNEL` plumbing,
+  and the Containerfile akmods `FROM` stage). This was also the cause of the build breaking —
+  `ublue-os/akmods` never published a `coreos-stable-44`/kernel-7 tag.
+- `linux-firmware` Koji pin (`50-firmware.sh`, the `FIRMWARE_VERSION` arg) — the image now
+  tracks Fedora's current firmware.
+- amdgpu MES-hang kargs (`ujust fix-amdgpu`: `dcdebugmask`, `sg_display`, `cwsr_enable`).
+- Strix Point S0ix sleep quirks: fingerprint/XHC wakeup udev rules, the GVFS/FUSE-unmount
+  sleep hook, and `ujust fix-sleep` / `ujust diagnose-sleep`.
 
-### Firmware Override
-- `build/50-firmware.sh` pins `linux-firmware` to a known-good version from Koji
-- Fixes S0ix regression introduced in `linux-firmware-20260221` on AMD Strix Point
-- Version controlled via `FIRMWARE_VERSION` build arg in Containerfile
-- Dynamically discovers ALL installed firmware sub-packages before removal and reinstalls them all at the pinned version, preserving firmware for all hardware (Intel WiFi, Broadcom, MediaTek, AMD, etc.)
-- Validates Koji URLs before removing packages to fail early on package renames or missing versions
-
-### Sleep/Suspend Fixes (Framework 13 AMD)
-- Goodix fingerprint reader disabled via udev rule (`custom/udev/99-disable-goodix-fingerprint.rules`)
-- XHC (USB controller) wakeup disabled via udev rule to prevent spurious s2idle wakes (`custom/udev/90-disable-xhc-wakeup.rules`)
-- Suspend-then-hibernate via `ujust setup-hibernate` / `ujust remove-hibernate` (swap, initramfs, kernel args, logind)
-- GVFS/FUSE mounts lazy-unmounted before suspend (`custom/systemd/system-sleep/50-unmount-fuse.sh`)
-- Machine-specific fixes applied via `ujust fix-sleep` (kernel params, wakeup source management)
-- Diagnostics via `ujust diagnose-sleep`
-- Details: `docs/amdgpu-strix-point-gpu-hang.md`
+Restore from git history (branch `fix/remove-akmods-kernel7-workarounds`) if on-hardware
+testing on kernel 7 shows any are still needed.
 
 ### System Configuration
 - Custom package installations via dnf5
@@ -203,9 +193,6 @@ User-level configuration via ujust (defined in `custom/ujust/rocinante.just`):
 - `ujust configure-yubikey-pam` - Configure YubiKey for PAM authentication (desktop-aware: GDM/SDDM)
 - `ujust setup-borgmatic` - Set up borgmatic backups to BorgBase (encrypted, automated)
 - `ujust setup-gpu-passthrough` - Configure IOMMU and Incus for GPU passthrough
-- `ujust fix-amdgpu` - Apply AMD GPU workarounds for Framework laptops
-- `ujust fix-sleep` - Fix sleep/suspend S0ix issues on Framework 13 AMD
-- `ujust diagnose-sleep` - Diagnose sleep/suspend issues on Framework 13 AMD
 
 ## Pre-commit Checklist
 
