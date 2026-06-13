@@ -5,3 +5,9 @@ _build-*/**
 
 # Local development configuration
 .claude/
+
+# Local hardware diagnostic dumps / logs (may contain sensitive data — never commit).
+# Convention: write any diagnostic output here (or outside the repo entirely),
+# never into tracked paths. Both names are recursively ignored.
+laptop-diag/
+diag/

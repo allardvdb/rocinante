@@ -209,8 +209,7 @@ is to modify the image source and trigger a rebuild.
 | System packages (dnf5) | `build/10-build.sh` (add to the dnf5 install line) or a new numbered script |
 | Homebrew packages | `custom/brew/default.Brewfile` |
 | ujust recipes | `custom/ujust/rocinante.just` or a new `.just` file in `custom/ujust/` |
-| Udev rules | `custom/udev/` directory |
-| Systemd sleep hooks | `custom/systemd/system-sleep/` directory |
+| Udev rules / systemd units / sleep hooks | Write and install them in a build script (e.g. `build/10-build.sh`); there is no auto-copied `custom/` drop-in directory for these |
 | System executables | Place in `/usr/libexec/` — NEVER `/usr/local/bin/` (it is a symlink) |
 
 ### How the build works (ctx-stage pattern)
@@ -255,9 +254,6 @@ These recipes are available on the running system via `ujust <recipe>`:
 | `ujust configure-yubikey-pam` | Configure YubiKey for PAM authentication |
 | `ujust setup-borgmatic` | Set up borgmatic backups to BorgBase |
 | `ujust setup-gpu-passthrough` | Configure IOMMU and Incus for GPU passthrough |
-| `ujust fix-amdgpu` | Apply AMD GPU workarounds for Framework laptops |
-| `ujust fix-sleep` | Fix sleep/suspend S0ix issues on Framework 13 AMD |
-| `ujust diagnose-sleep` | Diagnose sleep/suspend issues on Framework 13 AMD |
 
 ---
 
