@@ -1,0 +1,18 @@
+# Ghostty system skeleton config — installed to /etc/skel/.config/ghostty/config
+# Applied to new user accounts at creation; existing users are unaffected.
+#
+# Core purpose: enable OSC 52 clipboard so that zellij running over SSH into
+# GitHub Codespaces (or any remote host) can write to the local clipboard.
+# Ptyxis/VTE does not support OSC 52; Ghostty does, but requires clipboard-read
+# to be set to "allow" (default is "ask", which prompts on every remote write).
+
+# OSC 52 clipboard — required for remote copy-paste via zellij over SSH
+clipboard-read  = allow
+clipboard-write = allow
+
+# Copy selected text to clipboard automatically (mirrors common terminal UX)
+copy-on-select = clipboard
+
+# Shell integration: let Ghostty detect the shell automatically.
+# Required for OSC 52 to function correctly end-to-end.
+shell-integration = detect

@@ -1,6 +1,6 @@
 # rocinante
 
-Custom [Bluefin](https://projectbluefin.io/) / [Aurora](https://getaurora.dev/) image with 1Password, Homebrew, Incus, and YubiKey support.
+Custom [Bluefin](https://projectbluefin.io/) / [Aurora](https://getaurora.dev/) image with 1Password, Homebrew, Incus, Ghostty, and YubiKey support.
 
 Built using the [finpilot](https://github.com/projectbluefin/finpilot) pattern. Available in GNOME (Bluefin), GNOME + NVIDIA, and KDE Plasma (Aurora) variants.
 
@@ -66,6 +66,7 @@ Individual recipes:
 - `ujust setup-gpu-passthrough` — IOMMU + Incus GPU passthrough
 - `ujust configure-yubikey-pam` — YubiKey PAM authentication
 - `ujust setup-borgmatic` — Borgmatic backups to BorgBase
+- `ujust set-default-terminal-ghostty` — Make Ghostty the default terminal + deploy OSC 52 clipboard config
 
 ## What's included on top of vanilla Bluefin / Aurora
 
@@ -73,6 +74,7 @@ Individual recipes:
 |----------|-------|
 | 1Password | Desktop + CLI + Flatpak browser integration |
 | Homebrew | Via @ublue-os/brew (auto-setup and update timers) |
+| Ghostty | GPU-accelerated terminal with OSC 52 (remote clipboard over SSH for zellij/Codespaces); `ujust set-default-terminal-ghostty` |
 | Incus | VM/container manager with QEMU, SPICE, OVMF, VFIO |
 | virt-viewer | SPICE client for `incus console --type=vga` |
 | ROCm | AMD GPU compute stack |
@@ -88,10 +90,13 @@ Individual recipes:
 │   ├── 20-1password.sh      # 1Password installation
 │   ├── 30-incus.sh          # Incus + QEMU/SPICE/VFIO
 │   ├── 40-rocm.sh           # AMD ROCm compute stack
+│   ├── 50-ghostty.sh        # Ghostty terminal (COPR) + OSC 52 config
 │   └── copr-helpers.sh      # COPR helper functions
 ├── custom/                   # Custom files copied into the image
 │   ├── brew/                 # Brewfiles for Homebrew packages
 │   │   └── default.Brewfile
+│   ├── ghostty/              # Ghostty skeleton config (→ /etc/skel)
+│   │   └── config
 │   └── ujust/                # Custom ujust recipes (→ 60-custom.just)
 │       └── rocinante.just
 ├── Containerfile             # Container build definition (ctx-stage pattern)

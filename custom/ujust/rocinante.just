@@ -556,6 +556,7 @@ first-run:
     echo "  - ujust setup-gpu-passthrough   # If using Incus VMs with GPU passthrough"
     echo "  - ujust setup-yubikey-ssh       # If using YubiKey for SSH"
     echo "  - ujust toggle-suspend          # If using for remote access"
+    echo "  - ujust set-default-terminal-ghostty  # Ghostty default + OSC 52 clipboard"
     echo ""
     echo "${b}First-run setup complete!${n}"
 
@@ -1207,3 +1208,68 @@ setup-borgmatic:
     echo ""
     echo "  Timer status: ${b}systemctl --user status borgmatic.timer${n}"
     echo "  Manual run:   ${b}systemctl --user start borgmatic.service${n}"
+
+# Set Ghostty as default terminal + deploy the OSC 52 clipboard config
+[group('Rocinante')]
+set-default-terminal-ghostty:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Terminal formatting
+    b=$(tput bold 2>/dev/null) || b=""
+    n=$(tput sgr0 2>/dev/null) || n=""
+    green=$(tput setaf 2 2>/dev/null) || green=""
+
+    echo "${b}Set Ghostty as default terminal${n}"
+    echo ""
+
+    # Verify Ghostty is installed
+    if ! command -v ghostty &>/dev/null; then
+        echo "Error: Ghostty is not installed on this system."
+        exit 1
+    fi
+
+    # Deploy the OSC 52 config to the current user if missing.
+    # The image ships it via /etc/skel, which only applies to NEW accounts —
+    # existing users (the common case, including the primary user) must get it
+    # copied here, otherwise the OSC 52 remote-clipboard fix never reaches them.
+    USER_GHOSTTY="${HOME}/.config/ghostty/config"
+    if [[ -f "$USER_GHOSTTY" ]]; then
+        echo "${green}${b}✓${n} Ghostty config already present at $USER_GHOSTTY"
+    elif [[ -f /etc/skel/.config/ghostty/config ]]; then
+        mkdir -p "$(dirname "$USER_GHOSTTY")"
+        cp /etc/skel/.config/ghostty/config "$USER_GHOSTTY"
+        echo "${green}${b}✓${n} Installed OSC 52 config to $USER_GHOSTTY"
+    fi
+    echo ""
+
+    DE="${XDG_CURRENT_DESKTOP:-}"
+
+    if [[ "$DE" == *"KDE"* ]]; then
+        # KDE does not use xdg-terminals.list; configure via kwriteconfig.
+        # Plasma 6 (Aurora on FC44) ships kwriteconfig6; fall back to kwriteconfig5.
+        KWRITECONFIG=""
+        if command -v kwriteconfig6 &>/dev/null; then
+            KWRITECONFIG=kwriteconfig6
+        elif command -v kwriteconfig5 &>/dev/null; then
+            KWRITECONFIG=kwriteconfig5
+        fi
+
+        if [[ -n "$KWRITECONFIG" ]]; then
+            echo "KDE detected — configuring via ${KWRITECONFIG}..."
+            "$KWRITECONFIG" --file kdeglobals --group General --key TerminalApplication ghostty
+            "$KWRITECONFIG" --file kdeglobals --group General --key TerminalService com.mitchellh.ghostty.desktop
+            echo "${green}${b}Done.${n} Ghostty is now the KDE default terminal."
+            echo "Changes take effect in new Dolphin/app instances."
+        else
+            echo "kwriteconfig6/kwriteconfig5 not found — set the default terminal in:"
+            echo "  System Settings → Applications → Default Applications → Terminal Emulator"
+        fi
+    else
+        # GNOME / other desktops: write to user-level xdg-terminals.list (highest priority)
+        echo "GNOME/other DE detected — writing ~/.config/xdg-terminals.list..."
+        mkdir -p "${HOME}/.config"
+        printf 'com.mitchellh.ghostty.desktop\n' > "${HOME}/.config/xdg-terminals.list"
+        echo "${green}${b}Done.${n} Ghostty is now the user-level default terminal."
+        echo "The image-level default (/etc/xdg/xdg-terminals.list) already points to"
+        echo "Ghostty; this user file provides an explicit override if needed."
+    fi
