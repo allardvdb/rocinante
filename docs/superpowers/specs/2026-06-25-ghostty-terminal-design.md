@@ -14,7 +14,7 @@
 ## Goals & non-goals
 
 **Goals:**
-- Install Ghostty (`ghostty`, `ghostty-terminfo`, `ghostty-shell-integration`) from `scottames/ghostty` COPR.
+- Install Ghostty (`ghostty` — this COPR bundles terminfo and shell integration into the main package; no separate subpackages) from `scottames/ghostty` COPR.
 - Enable OSC 52 clipboard for new users via a skeleton config.
 - Set Ghostty as the image-level default terminal on GNOME/Bluefin via `xdg-terminal-exec` (safe, user-overridable, harmless on KDE).
 - Provide a `ujust set-default-terminal-ghostty` recipe for KDE/Aurora users who want to opt in explicitly.
@@ -30,7 +30,7 @@
 ### Feature 1: COPR package install
 
 **File:** `build/50-ghostty.sh`
-**Change:** New build script using `copr_install_isolated "scottames/ghostty"` to install `ghostty ghostty-terminfo ghostty-shell-integration`. `gtk4-layer-shell` (a declared RPM dep) pulls automatically.
+**Change:** New build script using `copr_install_isolated "scottames/ghostty"` to install `ghostty`. This COPR ships terminfo (`xterm-ghostty`) and shell integration inside the main `ghostty` package — there are no `-terminfo`/`-shell-integration` subpackages (listing them fails the build with "No match for argument"). `gtk4-layer-shell` and other runtime deps pull automatically.
 
 Script follows the `30-incus.sh` header convention (`#!/usr/bin/bash`, `set -eoux pipefail`, `echo ::group::`). Sources `copr-helpers.sh` with `# shellcheck source=` directive for shellcheck cleanliness.
 

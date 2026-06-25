@@ -40,7 +40,7 @@ Expected: File exists at `custom/ghostty/config`.
 **Files:**
 - Create: `build/50-ghostty.sh`
 
-Follows `30-incus.sh` conventions: `#!/usr/bin/bash`, `set -eoux pipefail`, `echo ::group::` blocks, sources `copr-helpers.sh` with shellcheck directive. Installs `ghostty ghostty-terminfo ghostty-shell-integration` via `copr_install_isolated "scottames/ghostty"`. Installs the skel config via `install -D -m0644`. Writes `/etc/xdg/xdg-terminals.list` with `com.mitchellh.ghostty.desktop`.
+Follows `30-incus.sh` conventions: `#!/usr/bin/bash`, `set -eoux pipefail`, `echo ::group::` blocks, sources `copr-helpers.sh` with shellcheck directive. Installs `ghostty` via `copr_install_isolated "scottames/ghostty"` (this COPR bundles terminfo and shell integration into the main package — no separate subpackages). Installs the skel config via `install -D -m0644`. Writes `/etc/xdg/xdg-terminals.list` with `com.mitchellh.ghostty.desktop`.
 
 - [x] **Step 1: Create `build/50-ghostty.sh`** with correct shebang, `set -eoux pipefail`, copr source directive, COPR install, skel config install, and xdg-terminals.list write.
 

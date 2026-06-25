@@ -6,11 +6,11 @@ source /ctx/build/copr-helpers.sh
 echo "::group:: Install Ghostty"
 # scottames/ghostty is the COPR cited by ghostty.org/docs/install/binary.
 # Verified: build 10407077 (ghostty 1.3.1-2) succeeded on fedora-44-x86_64/aarch64.
-# gtk4-layer-shell is a declared RPM dependency — it pulls automatically.
-copr_install_isolated "scottames/ghostty" \
-    ghostty \
-    ghostty-terminfo \
-    ghostty-shell-integration
+# This COPR bundles the terminfo (xterm-ghostty) and shell integration into the
+# single `ghostty` package — there are NO -terminfo/-shell-integration
+# subpackages here (unlike official Fedora). Runtime deps such as
+# gtk4-layer-shell pull in automatically.
+copr_install_isolated "scottames/ghostty" ghostty
 echo "::endgroup::"
 
 echo "::group:: Install Ghostty skeleton config"
